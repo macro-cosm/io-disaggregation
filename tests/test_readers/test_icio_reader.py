@@ -37,8 +37,12 @@ class TestICIOReader:
         assert sample_reader.data.loc[("CHN", "MFG"), ("USA", "MFG")] == 35.0
 
         # Check row sums (should match the sample data)
-        assert sample_reader.data.loc[("USA", "AGR")].sum() == 70.0  # Updated for ROW columns
-        assert sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0  # Updated for ROW columns
+        assert (
+            sample_reader.data.loc[("USA", "AGR")].sum() == 70.0
+        )  # Updated for ROW columns
+        assert (
+            sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0
+        )  # Updated for ROW columns
 
     def test_real_data_structure(self, icio_reader: ICIOReader):
         """Test the structure of the reader with real ICIO data."""
@@ -68,14 +72,22 @@ class TestICIOReader:
         assert np.isfinite(icio_reader.data.values).all()
 
         # Get regular country indices (excluding special elements)
-        row_countries = {idx[0] for idx in icio_reader.data.index if idx[0] in icio_reader.countries}
-        col_countries = {idx[0] for idx in icio_reader.data.columns if idx[0] in icio_reader.countries}
+        row_countries = {
+            idx[0] for idx in icio_reader.data.index if idx[0] in icio_reader.countries
+        }
+        col_countries = {
+            idx[0]
+            for idx in icio_reader.data.columns
+            if idx[0] in icio_reader.countries
+        }
 
         # Check regular country indices match
         assert row_countries == col_countries, "Regular country indices should match"
 
         # Get regular industry indices (excluding special elements)
-        row_industries = {idx[1] for idx in icio_reader.data.index if idx[0] in icio_reader.countries}
+        row_industries = {
+            idx[1] for idx in icio_reader.data.index if idx[0] in icio_reader.countries
+        }
         col_industries = {
             idx[1]
             for idx in icio_reader.data.columns
@@ -103,8 +115,12 @@ class TestICIOReader:
     def test_constructor(self):
         """Test direct constructor with valid data."""
         # Create sample data
-        index = pd.MultiIndex.from_tuples([("USA", "AGR"), ("USA", "MFG")], names=["CountryInd", "industryInd"])
-        columns = pd.MultiIndex.from_tuples([("USA", "AGR"), ("USA", "MFG")], names=["CountryInd", "industryInd"])
+        index = pd.MultiIndex.from_tuples(
+            [("USA", "AGR"), ("USA", "MFG")], names=["CountryInd", "industryInd"]
+        )
+        columns = pd.MultiIndex.from_tuples(
+            [("USA", "AGR"), ("USA", "MFG")], names=["CountryInd", "industryInd"]
+        )
         data = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], index=index, columns=columns)
 
         reader = ICIOReader(data=data, countries=["USA"], industries=["AGR", "MFG"])
@@ -149,10 +165,14 @@ class TestICIOReader:
     def test_real_data_selection(self, icio_reader: ICIOReader):
         """Test country selection and aggregation with real ICIO data."""
         # Get original countries for testing
-        original_countries = icio_reader.countries[:3]  # Take first 3 countries for test
+        original_countries = icio_reader.countries[
+            :3
+        ]  # Take first 3 countries for test
 
         # Create reader with selected countries
-        selected_reader = ICIOReader.from_csv_selection(icio_reader.data_path, selected_countries=original_countries)
+        selected_reader = ICIOReader.from_csv_selection(
+            icio_reader.data_path, selected_countries=original_countries
+        )
 
         # Check basic structure
         assert set(selected_reader.countries) == set(original_countries) | {"ROW"}
@@ -169,7 +189,9 @@ class TestICIOReader:
 
         # Check that row and column sums match original totals
         # The total sum should be the same before and after aggregation
-        assert np.isclose(selected_reader.data.values.sum(), icio_reader.data.values.sum(), rtol=1e-10)
+        assert np.isclose(
+            selected_reader.data.values.sum(), icio_reader.data.values.sum(), rtol=1e-10
+        )
 
     def test_invalid_country_selection(self, sample_csv):
         """Test handling of invalid country selection."""
@@ -251,8 +273,12 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(final_demand, pd.Series)
         assert final_demand.index.nlevels == 2
-        assert set(final_demand.index.get_level_values(0)) == set(sample_reader.countries)
-        assert set(final_demand.index.get_level_values(1)) == set(sample_reader.industries)
+        assert set(final_demand.index.get_level_values(0)) == set(
+            sample_reader.countries
+        )
+        assert set(final_demand.index.get_level_values(1)) == set(
+            sample_reader.industries
+        )
 
         # Values should be non-negative for final demand
         assert (final_demand >= 0).all()
@@ -264,8 +290,12 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(intermediate, pd.Series)
         assert intermediate.index.nlevels == 2
-        assert set(intermediate.index.get_level_values(0)) == set(sample_reader.countries)
-        assert set(intermediate.index.get_level_values(1)) == set(sample_reader.industries)
+        assert set(intermediate.index.get_level_values(0)) == set(
+            sample_reader.countries
+        )
+        assert set(intermediate.index.get_level_values(1)) == set(
+            sample_reader.industries
+        )
 
         # Sum of intermediate consumption should match known values from sample data
         # (Add specific value checks based on the sample data)
@@ -297,7 +327,8 @@ class TestICIOReader:
         }
         actual_fd_categories = set(fd_table.columns.get_level_values(1).unique())
         assert actual_fd_categories.issubset(expected_fd_categories), (
-            f"Found unexpected final demand categories: " f"{actual_fd_categories - expected_fd_categories}"
+            f"Found unexpected final demand categories: "
+            f"{actual_fd_categories - expected_fd_categories}"
         )
 
         # Values should be non-negative
@@ -319,8 +350,12 @@ class TestICIOReader:
 
         # Check column structure (should also be country-industry pairs)
         assert int_table.columns.names == ["CountryInd", "industryInd"]
-        assert set(int_table.columns.get_level_values(0)) == set(sample_reader.countries)
-        assert set(int_table.columns.get_level_values(1)) == set(sample_reader.industries)
+        assert set(int_table.columns.get_level_values(0)) == set(
+            sample_reader.countries
+        )
+        assert set(int_table.columns.get_level_values(1)) == set(
+            sample_reader.industries
+        )
 
         # Check specific values from sample data
         assert int_table.loc[("USA", "AGR"), ("USA", "AGR")] == 10.0
@@ -329,3 +364,46 @@ class TestICIOReader:
         # Values can be negative in intermediate demand
         # But should be finite
         assert np.isfinite(int_table.values).all()
+
+    def test_technical_coefficients(self, sample_reader: ICIOReader):
+        """Test computation of technical coefficients matrix."""
+        # Get technical coefficients
+        tech_coef = sample_reader.technical_coefficients
+
+        # Check basic structure
+        assert isinstance(tech_coef, pd.DataFrame)
+        assert tech_coef.index.equals(sample_reader.intermediate_demand_table.index)
+        assert tech_coef.columns.equals(sample_reader.intermediate_demand_table.columns)
+
+        # Check specific values from sample data
+        # For USA-AGR to USA-AGR: flow is 10.0, output is 70.0
+        # So coefficient should be 10.0/70.0
+        assert np.isclose(tech_coef.loc[("USA", "AGR"), ("USA", "AGR")], 10.0 / 70.0)
+
+        # Check that all values are non-negative
+        # (coefficients represent share of input in total output)
+        assert (tech_coef >= 0).all().all()
+
+    def test_technical_coefficients_zero_output(self, sample_reader: ICIOReader):
+        """Test handling of zero output in technical coefficients computation."""
+        # Create a copy of the reader with modified data
+        reader_copy = ICIOReader(
+            data=sample_reader.data.copy(),
+            countries=sample_reader.countries.copy(),
+            industries=sample_reader.industries.copy(),
+        )
+
+        # Set output of USA-AGR to 0
+        reader_copy.data.loc[("OUT", "OUT"), ("USA", "AGR")] = 0.0
+
+        # Compute technical coefficients
+        tech_coef = reader_copy.technical_coefficients
+
+        # Check that coefficients for USA-AGR column are all 0
+        assert (tech_coef[("USA", "AGR")] == 0).all()
+
+        # Other coefficients should still be valid
+        assert np.isclose(
+            tech_coef.loc[("USA", "MFG"), ("USA", "MFG")],
+            40.0 / 170.0,  # Original flow divided by original output
+        )

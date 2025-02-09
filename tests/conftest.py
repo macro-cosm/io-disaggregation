@@ -16,7 +16,8 @@ USA,MFG,30,40,25,35,15,25
 CHN,AGR,5,15,10,20,6,14
 CHN,MFG,25,35,30,40,20,30
 ROW,AGR,8,12,6,14,10,20
-ROW,MFG,15,25,20,30,30,40"""
+ROW,MFG,15,25,20,30,30,40
+OUT,OUT,70,170,70,180,70,140"""
 
 
 @pytest.fixture(scope="session")
@@ -58,7 +59,8 @@ def icio_csv_path() -> Path:
 
     if not csv_path.exists():
         raise FileNotFoundError(
-            f"ICIO CSV file not found at {csv_path}. " "Please ensure the data file is present in the data directory."
+            f"ICIO CSV file not found at {csv_path}. "
+            "Please ensure the data file is present in the data directory."
         )
 
     return csv_path
@@ -94,6 +96,8 @@ def sample_csv(tmp_path_factory) -> Path:
     """
     tmp_path = tmp_path_factory.mktemp("data")
     csv_path = tmp_path / "test_icio.csv"
-    with open(csv_path, "w", newline="") as f:  # Use newline="" to ensure consistent line endings
+    with open(
+        csv_path, "w", newline=""
+    ) as f:  # Use newline="" to ensure consistent line endings
         f.write(SAMPLE_DATA)
     return csv_path
