@@ -4,7 +4,13 @@ sectors:
     subsectors:
       MFG1:
         name: "Primary Manufacturing"
-        relative_output_weight: 0.6
+        relative_output_weights:
+          USA: 0.6 # 60% of USA's MFG is MFG1
+          CHN: 0.7 # 70% of China's MFG is MFG1
+          ROW: 0.5 # 50% of ROW's MFG is MFG1
       MFG2:
         name: "Secondary Manufacturing"
-        relative_output_weight: 0.4
+        relative_output_weights:
+          USA: 0.4 # 40% of USA's MFG is MFG2
+          CHN: 0.3 # 30% of China's MFG is MFG2
+          ROW: 0.5 # 50% of ROW's MFG is MFG2

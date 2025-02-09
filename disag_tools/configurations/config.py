@@ -1,52 +1,68 @@
 """Pydantic models for disaggregation configuration."""
 
-from typing import Annotated, Dict, List
+from itertools import product
+from typing import Tuple
 
-from pydantic import BaseModel, Field, NonNegativeFloat, model_validator
+from pydantic import BaseModel, Field, NonNegativeFloat, model_validator, field_validator
 
 
 class SubsectorConfig(BaseModel):
-    """Configuration for a single sub-sector."""
+    """Configuration for a subsector in sector disaggregation."""
 
-    name: str = Field(..., description="Human-readable name for the sub-sector")
-    relative_output_weight: Annotated[float, Field(..., ge=0, le=1)] = Field(
-        ..., description="Relative output weight of this sub-sector"
-    )
+    name: str
+    relative_output_weights: dict[str, float]  # Maps country code to relative output weight
+
+    @field_validator("relative_output_weights")
+    @classmethod
+    def validate_weights(cls, weights: dict[str, float]) -> dict[str, float]:
+        """Validate that weights are between 0 and 1."""
+        for country, weight in weights.items():
+            if not 0 <= weight <= 1:
+                raise ValueError(f"Weight for country {country} must be between 0 and 1")
+        return weights
 
 
 class RegionConfig(BaseModel):
     """Configuration for a single region within a country."""
 
     name: str = Field(..., description="Human-readable name for the region")
-    sector_weights: Dict[str, float] = Field(
+    sector_weights: dict[str, float] = Field(
         ..., description="Mapping of sector codes to their relative output weights in this region"
     )
 
 
 class SectorConfig(BaseModel):
-    """Configuration for disaggregating a sector."""
+    """Configuration for sector disaggregation."""
 
-    subsectors: Dict[str, SubsectorConfig] = Field(
-        ..., description="Mapping of sub-sector codes to their configurations"
-    )
+    subsectors: dict[str, SubsectorConfig]
 
     @model_validator(mode="after")
     def validate_weights_sum_to_one(self) -> "SectorConfig":
-        """Ensure subsector weights sum to 1."""
-        total = sum(sub.relative_output_weight for sub in self.subsectors.values())
-        if not abs(total - 1.0) < 1e-10:  # Using small epsilon for float comparison
-            raise ValueError(
-                f"Subsector weights must sum to 1, got {total} for sector {list(self.subsectors.keys())[0]}"
-            )
+        """Validate that weights sum to 1 for each country."""
+        # Get all countries from all subsectors
+        all_countries = {
+            country for subsector in self.subsectors.values() for country in subsector.relative_output_weights.keys()
+        }
+
+        # Check that all subsectors have weights for all countries
+        for subsector_code, subsector in self.subsectors.items():
+            missing_countries = all_countries - set(subsector.relative_output_weights.keys())
+            if missing_countries:
+                raise ValueError(f"Subsector {subsector_code} is missing weights for countries: {missing_countries}")
+
+        # Check that weights sum to 1 for each country
+        for country in all_countries:
+            total = sum(subsector.relative_output_weights[country] for subsector in self.subsectors.values())
+            if not abs(total - 1.0) < 1e-10:  # Use small epsilon for float comparison
+                raise ValueError(f"Weights for country {country} sum to {total}, but should sum to 1")
+
         return self
 
 
 class CountryConfig(BaseModel):
     """Configuration for disaggregating a country."""
 
-    regions: Dict[str, RegionConfig] = Field(
-        ..., description="Mapping of region codes to their configurations"
-    )
+    regions: dict[str, RegionConfig] = Field(..., description="Mapping of region codes to their configurations")
 
     @model_validator(mode="after")
     def validate_weights_sum_to_one(self) -> "CountryConfig":
@@ -65,118 +81,196 @@ class CountryConfig(BaseModel):
 
 
 class DisaggregationConfig(BaseModel):
-    """Top-level configuration for disaggregation."""
+    """Configuration for both sector and country disaggregation."""
 
-    countries: Dict[str, CountryConfig] | None = Field(
-        None, description="Optional mapping of country codes to their disaggregation configs"
-    )
-    sectors: Dict[str, SectorConfig] | None = Field(
-        None, description="Optional mapping of sector codes to their disaggregation configs"
-    )
+    countries: dict[str, CountryConfig] | None = None
+    sectors: dict[str, SectorConfig] | None = None
 
     @model_validator(mode="after")
-    def validate_not_empty(self) -> "DisaggregationConfig":
-        """Ensure at least one type of disaggregation is specified."""
+    def validate_at_least_one_disagg(self) -> "DisaggregationConfig":
+        """Validate that at least one type of disaggregation is specified."""
         if not self.countries and not self.sectors:
             raise ValueError("Must specify at least one country or sector to disaggregate")
         return self
 
-    def get_final_size(
-        self, original_countries: List[str], original_sectors: List[str]
-    ) -> tuple[int, int]:
-        """
-        Calculate the final number of rows/columns after disaggregation.
+    @staticmethod
+    def _get_combinatorial_mapping(
+        sector_mapping: dict[tuple[str, str], set[tuple[str, str]]],
+        country_mapping: dict[tuple[str, str], set[tuple[str, str]]],
+    ) -> dict[tuple[str, str], set[tuple[str, str]]]:
+        """Combine sector and country mappings to create final mapping.
+
+        This function handles the combinatorics of combining sector and country mappings.
+        For any (country, sector) pair that appears in both mappings, it creates all
+        possible combinations of the disaggregated pairs.
 
         Args:
-            original_countries: List of country codes in the original matrix
-            original_sectors: List of sector codes in the original matrix
+            sector_mapping: Mapping from original pairs to disaggregated pairs for sectors
+            country_mapping: Mapping from original pairs to disaggregated pairs for countries
 
         Returns:
-            Tuple of (rows, cols) in the final matrix
+            Combined mapping incorporating both sector and country disaggregation
+        """
+        # If either mapping is empty, return the other one
+        if not sector_mapping:
+            return country_mapping
+        if not country_mapping:
+            return sector_mapping
+
+        # Start with all pairs from both mappings
+        result = {}
+        all_pairs = set(sector_mapping.keys()) | set(country_mapping.keys())
+
+        for orig_pair in all_pairs:
+            if orig_pair in sector_mapping and orig_pair in country_mapping:
+                # Need to create combinations
+                # Get all regions from country mapping
+                regions = {pair[0] for pair in country_mapping[orig_pair]}
+                # Get all subsectors from sector mapping
+                subsectors = {pair[1] for pair in sector_mapping[orig_pair]}
+                # Create all combinations
+                result[orig_pair] = {(region, subsector) for region, subsector in product(regions, subsectors)}
+            elif orig_pair in sector_mapping:
+                result[orig_pair] = sector_mapping[orig_pair]
+            else:
+                result[orig_pair] = country_mapping[orig_pair]
+
+        return result
+
+    def get_disagg_mapping(self) -> dict[tuple[str, str], set[tuple[str, str]]]:
+        """Get mapping from original (country, sector) pairs to disaggregated pairs.
+
+        The mapping depends on whether we have country disaggregation, sector disaggregation, or both.
+        The mapping is used to determine how each (country, sector) pair should be split into new pairs.
+
+        Examples:
+            Sector-only disaggregation:
+                Input config:
+                    sectors:
+                        MFG:
+                            subsectors:
+                                MFG1:
+                                    relative_output_weights:
+                                        USA: 0.6
+                                        CHN: 0.7
+                                        ROW: 0.5
+                                MFG2:
+                                    relative_output_weights:
+                                        USA: 0.4
+                                        CHN: 0.3
+                                        ROW: 0.5
+
+                Output mapping:
+                    ("", "MFG"): {("", "MFG1"), ("", "MFG2")}  # For empty string case
+                    ("USA", "MFG"): {("USA", "MFG1"), ("USA", "MFG2")}  # For country-specific case
+                    ("CHN", "MFG"): {("CHN", "MFG1"), ("CHN", "MFG2")}
+                    ("ROW", "MFG"): {("ROW", "MFG1"), ("ROW", "MFG2")}
+
+            Country-only disaggregation:
+                Input config:
+                    countries:
+                        CHN:
+                            regions:
+                                CHN1:
+                                    relative_output_weights:
+                                        MFG: 0.4
+                                        SRV: 0.5
+                                CHN2:
+                                    relative_output_weights:
+                                        MFG: 0.6
+                                        SRV: 0.5
+
+                Output mapping:
+                    ("CHN", "MFG"): {("CHN1", "MFG"), ("CHN2", "MFG")}
+                    ("CHN", "SRV"): {("CHN1", "SRV"), ("CHN2", "SRV")}
+
+            Combined disaggregation:
+                Input config:
+                    sectors:
+                        MFG:
+                            subsectors:
+                                MFG1:
+                                    relative_output_weights:
+                                        CHN: 0.7
+                                MFG2:
+                                    relative_output_weights:
+                                        CHN: 0.3
+                    countries:
+                        CHN:
+                            regions:
+                                CHN1:
+                                    relative_output_weights:
+                                        MFG: 0.4
+                                CHN2:
+                                    relative_output_weights:
+                                        MFG: 0.6
+
+                Output mapping:
+                    ("CHN", "MFG"): {
+                        ("CHN1", "MFG1"), ("CHN1", "MFG2"),
+                        ("CHN2", "MFG1"), ("CHN2", "MFG2")
+                    }
+
+        Returns:
+            A dictionary mapping original (country, sector) pairs to sets of disaggregated pairs.
+        """
+        sector_mapping: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        country_mapping: dict[tuple[str, str], set[tuple[str, str]]] = {}
+
+        # Handle sector disaggregation
+        if self.sectors:
+            for sector, config in self.sectors.items():
+                # Get all countries that have weights defined for this sector
+                countries = set()
+                for subsector_config in config.subsectors.values():
+                    countries.update(subsector_config.relative_output_weights.keys())
+
+                # Create mappings for each country that has weights defined
+                for country in countries:
+                    orig_pair = (country, sector)
+                    sector_mapping[orig_pair] = {(country, subsector) for subsector in config.subsectors}
+
+        # Handle country disaggregation
+        if self.countries:
+            for country, config in self.countries.items():
+                # Get all sectors that have weights defined for this country
+                sectors = set()
+                for region_config in config.regions.values():
+                    sectors.update(region_config.sector_weights.keys())
+
+                for sector in sectors:
+                    orig_pair = (country, sector)
+                    # Just map to regions
+                    country_mapping[orig_pair] = {(region, sector) for region in config.regions}
+
+        # Combine the mappings
+        return self._get_combinatorial_mapping(sector_mapping, country_mapping)
+
+    def get_final_size(self, original_countries: list[str], original_sectors: list[str]) -> tuple[int, int]:
+        """
+        Compute the final size of the disaggregated matrix.
+
+        Args:
+            original_countries: List of countries before disaggregation
+            original_sectors: List of sectors before disaggregation
+
+        Returns:
+            Tuple of (rows, cols) for final matrix size
         """
         # Start with original size
         n_countries = len(original_countries)
         n_sectors = len(original_sectors)
 
-        # Add new regions (each region gets all sectors)
+        # Add country disaggregation
         if self.countries:
-            for country, config in self.countries.items():
-                if country in original_countries:
-                    # Subtract 1 for original country, add number of regions
-                    n_countries += len(config.regions) - 1
+            # Subtract original countries and add new regions
+            n_countries = n_countries - len(self.countries) + sum(len(c.regions) for c in self.countries.values())
 
-        # Add new subsectors (each subsector appears in all countries/regions)
+        # Add sector disaggregation
         if self.sectors:
-            for sector, config in self.sectors.items():
-                if sector in original_sectors:
-                    # Subtract 1 for original sector, add number of subsectors
-                    n_sectors += len(config.subsectors) - 1
+            # Subtract original sectors and add new subsectors
+            n_sectors = n_sectors - len(self.sectors) + sum(len(s.subsectors) for s in self.sectors.values())
 
-        # Final size is product of countries and sectors
+        # Final size is countries × sectors
         final_size = n_countries * n_sectors
         return final_size, final_size
-
-    def get_disagg_mapping(self) -> Dict[tuple[str, str], List[tuple[str, str]]]:
-        """
-        Get mapping from original (country, sector) pairs to disaggregated pairs.
-
-        Returns:
-            Dict mapping (country, sector) to list of disaggregated (country, sector) pairs
-        """
-        mapping: Dict[tuple[str, str], List[tuple[str, str]]] = {}
-
-        # Helper to process a single country-sector pair
-        def process_pair(country: str, sector: str) -> List[tuple[str, str]]:
-            result = [(country, sector)]  # Start with original pair
-
-            # Apply country disaggregation if applicable
-            if self.countries and country in self.countries:
-                # Only map if the sector has weights defined for this region
-                result = [
-                    (region_code, sector)
-                    for region_code, region in self.countries[country].regions.items()
-                    if sector in region.sector_weights
-                ]
-
-            # Apply sector disaggregation if applicable
-            if self.sectors and sector in self.sectors:
-                # If country was disaggregated, apply to all regions
-                # Otherwise, apply to original country
-                current_countries = {pair[0] for pair in result}
-                result = [
-                    (country, subsector_code)
-                    for country in current_countries
-                    for subsector_code in self.sectors[sector].subsectors.keys()
-                ]
-
-            return result
-
-        # If we have country disaggregation
-        if self.countries:
-            for country, country_config in self.countries.items():
-                # Get all sectors that have weights defined in any region
-                all_sectors = set()
-                for region in country_config.regions.values():
-                    all_sectors.update(region.sector_weights.keys())
-
-                # Map each sector
-                for sector in all_sectors:
-                    orig_pair = (country, sector)
-                    mapping[orig_pair] = process_pair(country, sector)
-
-        # If we have sector disaggregation
-        if self.sectors:
-            for sector in self.sectors:
-                # For each country that might be disaggregated
-                if self.countries:
-                    for country in self.countries:
-                        # Skip if already processed in country disaggregation
-                        orig_pair = (country, sector)
-                        if orig_pair not in mapping:
-                            mapping[orig_pair] = process_pair(country, sector)
-                else:
-                    # Just use empty string as placeholder for country
-                    orig_pair = ("", sector)
-                    mapping[orig_pair] = process_pair("", sector)
-
-        return mapping

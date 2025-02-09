@@ -17,19 +17,45 @@ def test_subsector_config_validation():
     """Test validation of subsector weights."""
     # Valid weights
     valid_subsectors = {
-        "MFG1": SubsectorConfig(name="Primary Manufacturing", relative_output_weight=0.6),
-        "MFG2": SubsectorConfig(name="Secondary Manufacturing", relative_output_weight=0.4),
+        "MFG1": SubsectorConfig(
+            name="Primary Manufacturing",
+            relative_output_weights={"USA": 0.6, "CHN": 0.7, "ROW": 0.5},
+        ),
+        "MFG2": SubsectorConfig(
+            name="Secondary Manufacturing",
+            relative_output_weights={"USA": 0.4, "CHN": 0.3, "ROW": 0.5},
+        ),
     }
     # This should not raise an error
     SectorConfig(subsectors=valid_subsectors)
 
-    # Invalid weights (don't sum to 1)
+    # Invalid weights (don't sum to 1 for a country)
     invalid_subsectors = {
-        "MFG1": SubsectorConfig(name="Primary Manufacturing", relative_output_weight=0.7),
-        "MFG2": SubsectorConfig(name="Secondary Manufacturing", relative_output_weight=0.4),
+        "MFG1": SubsectorConfig(
+            name="Primary Manufacturing",
+            relative_output_weights={"USA": 0.7, "CHN": 0.7, "ROW": 0.5},
+        ),
+        "MFG2": SubsectorConfig(
+            name="Secondary Manufacturing",
+            relative_output_weights={"USA": 0.4, "CHN": 0.3, "ROW": 0.5},
+        ),
     }
     with pytest.raises(ValidationError):
         SectorConfig(subsectors=invalid_subsectors)
+
+    # Invalid weights (missing a country)
+    missing_country_subsectors = {
+        "MFG1": SubsectorConfig(
+            name="Primary Manufacturing",
+            relative_output_weights={"USA": 0.6, "CHN": 0.7},  # Missing ROW
+        ),
+        "MFG2": SubsectorConfig(
+            name="Secondary Manufacturing",
+            relative_output_weights={"USA": 0.4, "CHN": 0.3, "ROW": 0.5},
+        ),
+    }
+    with pytest.raises(ValidationError):
+        SectorConfig(subsectors=missing_country_subsectors)
 
 
 def test_region_config_validation():
@@ -57,8 +83,8 @@ def test_load_sector_config(sector_config_path):
     config = DisaggregationConfig(**config_dict)
     assert "MFG" in config.sectors
     assert len(config.sectors["MFG"].subsectors) == 2
-    assert config.sectors["MFG"].subsectors["MFG1"].relative_output_weight == 0.6
-    assert config.sectors["MFG"].subsectors["MFG2"].relative_output_weight == 0.4
+    assert config.sectors["MFG"].subsectors["MFG1"].relative_output_weights["USA"] == 0.6
+    assert config.sectors["MFG"].subsectors["MFG2"].relative_output_weights["USA"] == 0.4
 
 
 def test_load_country_config():
@@ -94,11 +120,13 @@ def test_get_mapping_sector_disagg(sector_config_path):
     config = DisaggregationConfig(**config_dict)
     mapping = config.get_disagg_mapping()
 
-    # Check that MFG is mapped to MFG1 and MFG2
-    assert ("", "MFG") in mapping
-    mapped_pairs = mapping[("", "MFG")]
-    assert ("", "MFG1") in mapped_pairs
-    assert ("", "MFG2") in mapped_pairs
+    # Check that MFG is mapped to MFG1 and MFG2 for each country with defined weights
+    for country in ["USA", "CHN", "ROW"]:
+        orig_pair = (country, "MFG")
+        assert orig_pair in mapping
+        mapped_pairs = mapping[orig_pair]
+        assert (country, "MFG1") in mapped_pairs
+        assert (country, "MFG2") in mapped_pairs
 
 
 def test_get_mapping_country_disagg():
@@ -124,6 +152,61 @@ def test_get_mapping_country_disagg():
     mapping = config.get_disagg_mapping()
     assert ("USA", "AGR") in mapping
     assert set(mapping[("USA", "AGR")]) == {("USA1", "AGR"), ("USA2", "AGR")}
+
+
+def test_get_combinatorial_mapping():
+    """Test the combinatorial mapping function separately."""
+    # Test case 1: Only sector disaggregation
+    sector_mapping = {("", "MFG"): {("", "MFG1"), ("", "MFG2")}}
+    country_mapping = {}
+    result = DisaggregationConfig._get_combinatorial_mapping(sector_mapping, country_mapping)
+    assert result == sector_mapping
+
+    # Test case 2: Only country disaggregation
+    sector_mapping = {}
+    country_mapping = {("USA", "MFG"): {("USA1", "MFG"), ("USA2", "MFG")}}
+    result = DisaggregationConfig._get_combinatorial_mapping(sector_mapping, country_mapping)
+    assert result == country_mapping
+
+    # Test case 3: Combined disaggregation
+    sector_mapping = {("USA", "MFG"): {("USA", "MFG1"), ("USA", "MFG2")}}
+    country_mapping = {("USA", "MFG"): {("USA1", "MFG"), ("USA2", "MFG")}}
+    result = DisaggregationConfig._get_combinatorial_mapping(sector_mapping, country_mapping)
+    expected = {
+        ("USA", "MFG"): {
+            ("USA1", "MFG1"),
+            ("USA1", "MFG2"),
+            ("USA2", "MFG1"),
+            ("USA2", "MFG2"),
+        }
+    }
+    assert result == expected
+
+    # Test case 4: Multiple sectors and countries
+    sector_mapping = {
+        ("USA", "MFG"): {("USA", "MFG1"), ("USA", "MFG2")},
+        ("USA", "AGR"): {("USA", "AGR1"), ("USA", "AGR2")},
+    }
+    country_mapping = {
+        ("USA", "MFG"): {("USA1", "MFG"), ("USA2", "MFG")},
+        ("USA", "AGR"): {("USA1", "AGR"), ("USA2", "AGR")},
+    }
+    result = DisaggregationConfig._get_combinatorial_mapping(sector_mapping, country_mapping)
+    expected = {
+        ("USA", "MFG"): {
+            ("USA1", "MFG1"),
+            ("USA1", "MFG2"),
+            ("USA2", "MFG1"),
+            ("USA2", "MFG2"),
+        },
+        ("USA", "AGR"): {
+            ("USA1", "AGR1"),
+            ("USA1", "AGR2"),
+            ("USA2", "AGR1"),
+            ("USA2", "AGR2"),
+        },
+    }
+    assert result == expected
 
 
 def test_get_final_size(sector_config_path):
@@ -166,9 +249,7 @@ def test_missing_sector_weights():
 def test_empty_disaggregation_config():
     """Test that DisaggregationConfig requires at least one type of disaggregation."""
     # Try to create config with no countries and no sectors
-    with pytest.raises(
-        ValidationError, match="Must specify at least one country or sector to disaggregate"
-    ):
+    with pytest.raises(ValidationError, match="Must specify at least one country or sector to disaggregate"):
         DisaggregationConfig(countries=None, sectors=None)
 
 
@@ -194,10 +275,12 @@ def test_combined_disaggregation_mapping():
             "MFG": SectorConfig(
                 subsectors={
                     "MFG1": SubsectorConfig(
-                        name="Primary Manufacturing", relative_output_weight=0.7
+                        name="Primary Manufacturing",
+                        relative_output_weights={"USA": 0.7, "USA1": 0.7, "USA2": 0.7},
                     ),
                     "MFG2": SubsectorConfig(
-                        name="Secondary Manufacturing", relative_output_weight=0.3
+                        name="Secondary Manufacturing",
+                        relative_output_weights={"USA": 0.3, "USA1": 0.3, "USA2": 0.3},
                     ),
                 }
             )
@@ -217,16 +300,18 @@ def test_combined_disaggregation_mapping():
 
 
 def test_sector_first_key():
-    """Test that sector key is used first in mapping when no country disaggregation."""
+    """Test sector disaggregation with specific countries."""
     config = DisaggregationConfig(
         sectors={
             "MFG": SectorConfig(
                 subsectors={
                     "MFG1": SubsectorConfig(
-                        name="Primary Manufacturing", relative_output_weight=0.7
+                        name="Primary Manufacturing",
+                        relative_output_weights={"USA": 0.7, "CHN": 0.7, "ROW": 0.7},
                     ),
                     "MFG2": SubsectorConfig(
-                        name="Secondary Manufacturing", relative_output_weight=0.3
+                        name="Secondary Manufacturing",
+                        relative_output_weights={"USA": 0.3, "CHN": 0.3, "ROW": 0.3},
                     ),
                 }
             )
@@ -234,8 +319,15 @@ def test_sector_first_key():
     )
 
     mapping = config.get_disagg_mapping()
-    assert ("", "MFG") in mapping  # Should use empty string for country
-    assert len(mapping) == 1  # Should only have one mapping
+
+    # Should have mappings for all countries with defined weights
+    expected_countries = {"USA", "CHN", "ROW"}
+    assert set(country for country, _ in mapping.keys()) == expected_countries
+
+    # Each country should map to its MFG1 and MFG2
+    for country in expected_countries:
+        assert (country, "MFG") in mapping
+        assert mapping[(country, "MFG")] == {(country, "MFG1"), (country, "MFG2")}
 
 
 def test_invalid_sector_weights():
