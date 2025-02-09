@@ -3,7 +3,7 @@
 from itertools import product
 from typing import Tuple
 
-from pydantic import BaseModel, Field, NonNegativeFloat, model_validator, field_validator
+from pydantic import BaseModel, Field, NonNegativeFloat, field_validator, model_validator
 
 
 class SubsectorConfig(BaseModel):
@@ -41,20 +41,28 @@ class SectorConfig(BaseModel):
         """Validate that weights sum to 1 for each country."""
         # Get all countries from all subsectors
         all_countries = {
-            country for subsector in self.subsectors.values() for country in subsector.relative_output_weights.keys()
+            country
+            for subsector in self.subsectors.values()
+            for country in subsector.relative_output_weights.keys()
         }
 
         # Check that all subsectors have weights for all countries
         for subsector_code, subsector in self.subsectors.items():
             missing_countries = all_countries - set(subsector.relative_output_weights.keys())
             if missing_countries:
-                raise ValueError(f"Subsector {subsector_code} is missing weights for countries: {missing_countries}")
+                raise ValueError(
+                    f"Subsector {subsector_code} is missing weights for countries: {missing_countries}"
+                )
 
         # Check that weights sum to 1 for each country
         for country in all_countries:
-            total = sum(subsector.relative_output_weights[country] for subsector in self.subsectors.values())
+            total = sum(
+                subsector.relative_output_weights[country] for subsector in self.subsectors.values()
+            )
             if not abs(total - 1.0) < 1e-10:  # Use small epsilon for float comparison
-                raise ValueError(f"Weights for country {country} sum to {total}, but should sum to 1")
+                raise ValueError(
+                    f"Weights for country {country} sum to {total}, but should sum to 1"
+                )
 
         return self
 
@@ -62,7 +70,9 @@ class SectorConfig(BaseModel):
 class CountryConfig(BaseModel):
     """Configuration for disaggregating a country."""
 
-    regions: dict[str, RegionConfig] = Field(..., description="Mapping of region codes to their configurations")
+    regions: dict[str, RegionConfig] = Field(
+        ..., description="Mapping of region codes to their configurations"
+    )
 
     @model_validator(mode="after")
     def validate_weights_sum_to_one(self) -> "CountryConfig":
@@ -129,7 +139,9 @@ class DisaggregationConfig(BaseModel):
                 # Get all subsectors from sector mapping
                 subsectors = {pair[1] for pair in sector_mapping[orig_pair]}
                 # Create all combinations
-                result[orig_pair] = {(region, subsector) for region, subsector in product(regions, subsectors)}
+                result[orig_pair] = {
+                    (region, subsector) for region, subsector in product(regions, subsectors)
+                }
             elif orig_pair in sector_mapping:
                 result[orig_pair] = sector_mapping[orig_pair]
             else:
@@ -228,7 +240,9 @@ class DisaggregationConfig(BaseModel):
                 # Create mappings for each country that has weights defined
                 for country in countries:
                     orig_pair = (country, sector)
-                    sector_mapping[orig_pair] = {(country, subsector) for subsector in config.subsectors}
+                    sector_mapping[orig_pair] = {
+                        (country, subsector) for subsector in config.subsectors
+                    }
 
         # Handle country disaggregation
         if self.countries:
@@ -246,7 +260,9 @@ class DisaggregationConfig(BaseModel):
         # Combine the mappings
         return self._get_combinatorial_mapping(sector_mapping, country_mapping)
 
-    def get_final_size(self, original_countries: list[str], original_sectors: list[str]) -> tuple[int, int]:
+    def get_final_size(
+        self, original_countries: list[str], original_sectors: list[str]
+    ) -> tuple[int, int]:
         """
         Compute the final size of the disaggregated matrix.
 
@@ -264,12 +280,20 @@ class DisaggregationConfig(BaseModel):
         # Add country disaggregation
         if self.countries:
             # Subtract original countries and add new regions
-            n_countries = n_countries - len(self.countries) + sum(len(c.regions) for c in self.countries.values())
+            n_countries = (
+                n_countries
+                - len(self.countries)
+                + sum(len(c.regions) for c in self.countries.values())
+            )
 
         # Add sector disaggregation
         if self.sectors:
             # Subtract original sectors and add new subsectors
-            n_sectors = n_sectors - len(self.sectors) + sum(len(s.subsectors) for s in self.sectors.values())
+            n_sectors = (
+                n_sectors
+                - len(self.sectors)
+                + sum(len(s.subsectors) for s in self.sectors.values())
+            )
 
         # Final size is countries × sectors
         final_size = n_countries * n_sectors

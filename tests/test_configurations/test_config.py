@@ -249,7 +249,9 @@ def test_missing_sector_weights():
 def test_empty_disaggregation_config():
     """Test that DisaggregationConfig requires at least one type of disaggregation."""
     # Try to create config with no countries and no sectors
-    with pytest.raises(ValidationError, match="Must specify at least one country or sector to disaggregate"):
+    with pytest.raises(
+        ValidationError, match="Must specify at least one country or sector to disaggregate"
+    ):
         DisaggregationConfig(countries=None, sectors=None)
 
 
