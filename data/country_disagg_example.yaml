@@ -1,0 +1,14 @@
+countries:
+  USA:
+    # Country to disaggregate
+    regions:
+      USA1:
+        name: "Eastern United States"
+        sector_weights:
+          AGR: 0.45 # 45% of USA's agriculture is in the East
+          MFG: 0.60 # 60% of USA's manufacturing is in the East
+      USA2:
+        name: "Western United States"
+        sector_weights:
+          AGR: 0.55 # 55% of USA's agriculture is in the West
+          MFG: 0.40 # 40% of USA's manufacturing is in the West
