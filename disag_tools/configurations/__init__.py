@@ -1,6 +1,6 @@
 """Configuration module for disaggregation specifications."""
 
-from multi_sector_disagg.configurations.config import (
+from disag_tools.configurations.config import (
     CountryConfig,
     DisaggregationConfig,
     RegionConfig,

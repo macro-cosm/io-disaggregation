@@ -30,7 +30,7 @@ pip install -e ".[dev]"
 ## Usage
 
 ```python
-from multi_sector_disagg.readers import ICIOReader
+from disag_tools.readers import ICIOReader
 
 # Read full ICIO table
 reader = ICIOReader.from_csv("path/to/icio_table.csv")
@@ -56,7 +56,7 @@ intermediate = reader.intermediate_consumption
 pytest tests/
 
 # Run tests with coverage
-pytest tests/ --cov=multi_sector_disagg
+pytest tests/ --cov=disag_tools
 ```
 
 ### Code Style
@@ -65,10 +65,6 @@ The project uses:
 - Black for code formatting
 - isort for import sorting
 - mypy for type checking
-
-## License
-
-MIT License. See LICENSE file for details.
 
 ## Documentation
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from multi_sector_disagg.readers import ICIOReader
+from disag_tools.readers import ICIOReader
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
@@ -114,6 +114,8 @@ def sample_csv(tmp_path_factory) -> Path:
     """
     tmp_path = tmp_path_factory.mktemp("data")
     csv_path = tmp_path / "test_icio.csv"
-    with open(csv_path, "w", newline="") as f:  # Use newline="" to ensure consistent line endings
+    with open(
+        csv_path, "w", newline=""
+    ) as f:  # Use newline="" to ensure consistent line endings
         f.write(SAMPLE_DATA)
     return csv_path
