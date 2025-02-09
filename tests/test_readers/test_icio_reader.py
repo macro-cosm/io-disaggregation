@@ -407,3 +407,13 @@ class TestICIOReader:
             tech_coef.loc[("USA", "MFG"), ("USA", "MFG")],
             40.0 / 170.0,  # Original flow divided by original output
         )
+
+    def test_real_data_technical_coefficients(self, icio_reader: ICIOReader):
+        """Test that technical coefficients from real ICIO data are non-negative."""
+        # Get technical coefficients from real data
+        tech_coef = icio_reader.technical_coefficients
+
+        # Check that all coefficients are non-negative
+        assert (
+            (tech_coef >= 0).all().all()
+        ), "Technical coefficients should be non-negative"
