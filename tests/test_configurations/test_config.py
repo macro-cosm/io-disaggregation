@@ -166,7 +166,9 @@ def test_missing_sector_weights():
 def test_empty_disaggregation_config():
     """Test that DisaggregationConfig requires at least one type of disaggregation."""
     # Try to create config with no countries and no sectors
-    with pytest.raises(ValidationError, match="Must specify at least one country or sector to disaggregate"):
+    with pytest.raises(
+        ValidationError, match="Must specify at least one country or sector to disaggregate"
+    ):
         DisaggregationConfig(countries=None, sectors=None)
 
 
@@ -191,8 +193,12 @@ def test_combined_disaggregation_mapping():
         sectors={
             "MFG": SectorConfig(
                 subsectors={
-                    "MFG1": SubsectorConfig(name="Primary Manufacturing", relative_output_weight=0.7),
-                    "MFG2": SubsectorConfig(name="Secondary Manufacturing", relative_output_weight=0.3),
+                    "MFG1": SubsectorConfig(
+                        name="Primary Manufacturing", relative_output_weight=0.7
+                    ),
+                    "MFG2": SubsectorConfig(
+                        name="Secondary Manufacturing", relative_output_weight=0.3
+                    ),
                 }
             )
         },
@@ -216,8 +222,12 @@ def test_sector_first_key():
         sectors={
             "MFG": SectorConfig(
                 subsectors={
-                    "MFG1": SubsectorConfig(name="Primary Manufacturing", relative_output_weight=0.7),
-                    "MFG2": SubsectorConfig(name="Secondary Manufacturing", relative_output_weight=0.3),
+                    "MFG1": SubsectorConfig(
+                        name="Primary Manufacturing", relative_output_weight=0.7
+                    ),
+                    "MFG2": SubsectorConfig(
+                        name="Secondary Manufacturing", relative_output_weight=0.3
+                    ),
                 }
             )
         }

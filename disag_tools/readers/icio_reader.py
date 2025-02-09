@@ -71,7 +71,9 @@ class ICIOReader:
             "CountryInd",
             "industryInd",
         ]:
-            raise ValueError("Index names must be ['CountryInd', 'industryInd'] for both rows and columns")
+            raise ValueError(
+                "Index names must be ['CountryInd', 'industryInd'] for both rows and columns"
+            )
 
         self.data = data
         self.countries = countries
@@ -132,10 +134,18 @@ class ICIOReader:
 
         # Extract countries and industries, excluding special elements
         countries = sorted(
-            {idx[0] for idx in raw_data.index if not any(idx[0].startswith(prefix) for prefix in special_prefixes)}
+            {
+                idx[0]
+                for idx in raw_data.index
+                if not any(idx[0].startswith(prefix) for prefix in special_prefixes)
+            }
         )
         industries = sorted(
-            {idx[1] for idx in raw_data.index if not any(idx[0].startswith(prefix) for prefix in special_prefixes)}
+            {
+                idx[1]
+                for idx in raw_data.index
+                if not any(idx[0].startswith(prefix) for prefix in special_prefixes)
+            }
         )
 
         # Create instance with the full data
@@ -175,7 +185,8 @@ class ICIOReader:
 
         # Create mapping for countries not in selected_countries
         country_mapping = {
-            country: "ROW" if country not in selected_countries else country for country in reader.countries
+            country: "ROW" if country not in selected_countries else country
+            for country in reader.countries
         }
 
         # Add special elements to the mapping (they map to themselves)
@@ -199,8 +210,14 @@ class ICIOReader:
 
         # Find all special elements in both index and columns
         special_elements = {
-            idx[0] for idx in reader.data.index if any(idx[0].startswith(prefix) for prefix in special_prefixes)
-        } | {col[0] for col in reader.data.columns if any(col[0].startswith(prefix) for prefix in special_prefixes)}
+            idx[0]
+            for idx in reader.data.index
+            if any(idx[0].startswith(prefix) for prefix in special_prefixes)
+        } | {
+            col[0]
+            for col in reader.data.columns
+            if any(col[0].startswith(prefix) for prefix in special_prefixes)
+        }
 
         # Add them to the mapping
         for special in special_elements:
@@ -212,7 +229,11 @@ class ICIOReader:
         data.columns.names = ["CountryCol", "industryCol"]
 
         # Stack to long format for aggregation, using new implementation
-        stacked = data.stack(level=0, future_stack=True).stack(level=0, future_stack=True).to_frame("Value")
+        stacked = (
+            data.stack(level=0, future_stack=True)
+            .stack(level=0, future_stack=True)
+            .to_frame("Value")
+        )
         stacked.index.names = ["CountryInd", "industryInd", "CountryCol", "industryCol"]
 
         # Map countries using the mapping
@@ -221,7 +242,9 @@ class ICIOReader:
         stacked["CountryCol"] = stacked["CountryCol"].map(country_mapping)
 
         # Group and aggregate
-        grouped = stacked.groupby(["CountryInd", "industryInd", "CountryCol", "industryCol"])["Value"].sum()
+        grouped = stacked.groupby(["CountryInd", "industryInd", "CountryCol", "industryCol"])[
+            "Value"
+        ].sum()
 
         # Unstack back to wide format
         aggregated = grouped.unstack(level=["CountryCol", "industryCol"])
@@ -274,12 +297,17 @@ class ICIOReader:
             ValueError: If output values cannot be retrieved
         """
         # Create valid pairs for regular countries
-        valid_pairs = pd.MultiIndex.from_product([self.countries, self.industries], names=["CountryInd", "industryInd"])
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
 
         try:
             # First try the OUT row
             output_values = pd.Series(
-                [self.data.loc[("OUT", "OUT"), (country, industry)] for country, industry in valid_pairs],
+                [
+                    self.data.loc[("OUT", "OUT"), (country, industry)]
+                    for country, industry in valid_pairs
+                ],
                 index=valid_pairs,
                 name="Output",
             )
@@ -288,7 +316,10 @@ class ICIOReader:
             # If that fails, try the OUTPUT row
             try:
                 output_values = pd.Series(
-                    [self.data.loc[("OUTPUT", "OUTPUT"), (country, industry)] for country, industry in valid_pairs],
+                    [
+                        self.data.loc[("OUTPUT", "OUTPUT"), (country, industry)]
+                        for country, industry in valid_pairs
+                    ],
                     index=valid_pairs,
                     name="Output",
                 )
@@ -305,7 +336,9 @@ class ICIOReader:
             pd.Series: Output values indexed by country-industry pairs
         """
         # Create valid pairs for regular countries
-        valid_pairs = pd.MultiIndex.from_product([self.countries, self.industries], names=["CountryInd", "industryInd"])
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
 
         # Get intermediate consumption (sum across regular country-industry columns)
         intermediate = self.data.loc[valid_pairs, valid_pairs].sum(axis=1)
@@ -328,7 +361,9 @@ class ICIOReader:
                 and final demand categories as columns
         """
         # Create valid pairs for regular countries
-        valid_pairs = pd.MultiIndex.from_product([self.countries, self.industries], names=["CountryInd", "industryInd"])
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
 
         # Get final demand columns (those with special prefixes)
         final_demand_prefixes = {
@@ -342,7 +377,9 @@ class ICIOReader:
             "DPABR",
         }
         final_demand_cols = [
-            col for col in self.data.columns if any(col[0].startswith(prefix) for prefix in final_demand_prefixes)
+            col
+            for col in self.data.columns
+            if any(col[0].startswith(prefix) for prefix in final_demand_prefixes)
         ]
 
         # Return the final demand table
@@ -371,7 +408,9 @@ class ICIOReader:
             ValueError: If the data contains invalid values
         """
         # Create valid pairs for regular countries
-        valid_pairs = pd.MultiIndex.from_product([self.countries, self.industries], names=["CountryInd", "industryInd"])
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
 
         # Get the intermediate demand table
         table = self.data.loc[valid_pairs, valid_pairs].copy()
@@ -472,8 +511,12 @@ class ICIOReader:
         undisaggregated_sectors = [s for s in self.industries if s not in sectors_to_disaggregate]
 
         # Create lists of (country, sector) pairs for each group
-        undisaggregated_pairs = [(country, sector) for country in self.countries for sector in undisaggregated_sectors]
-        disaggregated_pairs = [(country, sector) for country in self.countries for sector in sectors_to_disaggregate]
+        undisaggregated_pairs = [
+            (country, sector) for country in self.countries for sector in undisaggregated_sectors
+        ]
+        disaggregated_pairs = [
+            (country, sector) for country in self.countries for sector in sectors_to_disaggregate
+        ]
 
         # Create new order for rows and columns
         new_order = undisaggregated_pairs + disaggregated_pairs

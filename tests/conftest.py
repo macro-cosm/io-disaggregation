@@ -114,8 +114,6 @@ def sample_csv(tmp_path_factory) -> Path:
     """
     tmp_path = tmp_path_factory.mktemp("data")
     csv_path = tmp_path / "test_icio.csv"
-    with open(
-        csv_path, "w", newline=""
-    ) as f:  # Use newline="" to ensure consistent line endings
+    with open(csv_path, "w", newline="") as f:  # Use newline="" to ensure consistent line endings
         f.write(SAMPLE_DATA)
     return csv_path
