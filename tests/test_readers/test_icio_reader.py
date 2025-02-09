@@ -37,12 +37,8 @@ class TestICIOReader:
         assert sample_reader.data.loc[("CHN", "MFG"), ("USA", "MFG")] == 35.0
 
         # Check row sums (should match the sample data)
-        assert (
-            sample_reader.data.loc[("USA", "AGR")].sum() == 70.0
-        )  # Updated for ROW columns
-        assert (
-            sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0
-        )  # Updated for ROW columns
+        assert sample_reader.data.loc[("USA", "AGR")].sum() == 70.0  # Updated for ROW columns
+        assert sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0  # Updated for ROW columns
 
     def test_real_data_structure(self, icio_reader: ICIOReader):
         """Test the structure of the reader with real ICIO data."""
@@ -76,9 +72,7 @@ class TestICIOReader:
             idx[0] for idx in icio_reader.data.index if idx[0] in icio_reader.countries
         }
         col_countries = {
-            idx[0]
-            for idx in icio_reader.data.columns
-            if idx[0] in icio_reader.countries
+            idx[0] for idx in icio_reader.data.columns if idx[0] in icio_reader.countries
         }
 
         # Check regular country indices match
@@ -165,9 +159,7 @@ class TestICIOReader:
     def test_real_data_selection(self, icio_reader: ICIOReader):
         """Test country selection and aggregation with real ICIO data."""
         # Get original countries for testing
-        original_countries = icio_reader.countries[
-            :3
-        ]  # Take first 3 countries for test
+        original_countries = icio_reader.countries[:3]  # Take first 3 countries for test
 
         # Create reader with selected countries
         selected_reader = ICIOReader.from_csv_selection(
@@ -273,12 +265,8 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(final_demand, pd.Series)
         assert final_demand.index.nlevels == 2
-        assert set(final_demand.index.get_level_values(0)) == set(
-            sample_reader.countries
-        )
-        assert set(final_demand.index.get_level_values(1)) == set(
-            sample_reader.industries
-        )
+        assert set(final_demand.index.get_level_values(0)) == set(sample_reader.countries)
+        assert set(final_demand.index.get_level_values(1)) == set(sample_reader.industries)
 
         # Values should be non-negative for final demand
         assert (final_demand >= 0).all()
@@ -290,12 +278,8 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(intermediate, pd.Series)
         assert intermediate.index.nlevels == 2
-        assert set(intermediate.index.get_level_values(0)) == set(
-            sample_reader.countries
-        )
-        assert set(intermediate.index.get_level_values(1)) == set(
-            sample_reader.industries
-        )
+        assert set(intermediate.index.get_level_values(0)) == set(sample_reader.countries)
+        assert set(intermediate.index.get_level_values(1)) == set(sample_reader.industries)
 
         # Sum of intermediate consumption should match known values from sample data
         # (Add specific value checks based on the sample data)
@@ -350,12 +334,8 @@ class TestICIOReader:
 
         # Check column structure (should also be country-industry pairs)
         assert int_table.columns.names == ["CountryInd", "industryInd"]
-        assert set(int_table.columns.get_level_values(0)) == set(
-            sample_reader.countries
-        )
-        assert set(int_table.columns.get_level_values(1)) == set(
-            sample_reader.industries
-        )
+        assert set(int_table.columns.get_level_values(0)) == set(sample_reader.countries)
+        assert set(int_table.columns.get_level_values(1)) == set(sample_reader.industries)
 
         # Check specific values from sample data
         assert int_table.loc[("USA", "AGR"), ("USA", "AGR")] == 10.0
@@ -414,6 +394,33 @@ class TestICIOReader:
         tech_coef = icio_reader.technical_coefficients
 
         # Check that all coefficients are non-negative
-        assert (
-            (tech_coef >= 0).all().all()
-        ), "Technical coefficients should be non-negative"
+        assert (tech_coef >= 0).all().all(), "Technical coefficients should be non-negative"
+
+        # Check that we only have regular country-industry pairs (no special elements)
+        # For rows
+        row_countries = set(tech_coef.index.get_level_values(0))
+        assert row_countries.issubset(
+            set(icio_reader.countries)
+        ), f"Found unexpected countries in rows: {row_countries - set(icio_reader.countries)}"
+
+        row_industries = set(tech_coef.index.get_level_values(1))
+        assert row_industries.issubset(
+            set(icio_reader.industries)
+        ), f"Found unexpected industries in rows: {row_industries - set(icio_reader.industries)}"
+
+        # For columns
+        col_countries = set(tech_coef.columns.get_level_values(0))
+        assert col_countries.issubset(
+            set(icio_reader.countries)
+        ), f"Found unexpected countries in columns: {col_countries - set(icio_reader.countries)}"
+
+        col_industries = set(tech_coef.columns.get_level_values(1))
+        assert col_industries.issubset(
+            set(icio_reader.industries)
+        ), f"Found unexpected industries in columns: {col_industries - set(icio_reader.industries)}"
+
+        # Check that we have all expected country-industry pairs
+        assert row_countries == set(icio_reader.countries), "Missing countries in rows"
+        assert row_industries == set(icio_reader.industries), "Missing industries in rows"
+        assert col_countries == set(icio_reader.countries), "Missing countries in columns"
+        assert col_industries == set(icio_reader.industries), "Missing industries in columns"
