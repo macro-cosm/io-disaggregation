@@ -21,6 +21,24 @@ OUT,OUT,70,170,70,180,70,140"""
 
 
 @pytest.fixture(scope="session")
+def data_dir() -> Path:
+    """Get the path to the data directory."""
+    return Path(__file__).parent.parent / "data"
+
+
+@pytest.fixture(scope="session")
+def sector_config_path(data_dir: Path) -> Path:
+    """Get the path to the sector disaggregation config file."""
+    return data_dir / "sector_disagg_example.yaml"
+
+
+@pytest.fixture(scope="session")
+def country_config_path(data_dir: Path) -> Path:
+    """Get the path to the country disaggregation config file."""
+    return data_dir / "country_disagg_example.yaml"
+
+
+@pytest.fixture(scope="session")
 def sample_reader() -> ICIOReader:
     """
     Get an ICIOReader instance initialized with sample data.

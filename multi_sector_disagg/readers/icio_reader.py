@@ -64,9 +64,7 @@ class ICIOReader:
             ValueError: If data format is invalid
         """
         # Validate data structure
-        if not isinstance(data.index, pd.MultiIndex) or not isinstance(
-            data.columns, pd.MultiIndex
-        ):
+        if not isinstance(data.index, pd.MultiIndex) or not isinstance(data.columns, pd.MultiIndex):
             raise ValueError("Data must have MultiIndex for both rows and columns")
 
         if data.index.names != ["CountryInd", "industryInd"] or data.columns.names != [
@@ -240,9 +238,9 @@ class ICIOReader:
         stacked["CountryCol"] = stacked["CountryCol"].map(country_mapping)
 
         # Group and aggregate
-        grouped = stacked.groupby(
-            ["CountryInd", "industryInd", "CountryCol", "industryCol"]
-        )["Value"].sum()
+        grouped = stacked.groupby(["CountryInd", "industryInd", "CountryCol", "industryCol"])[
+            "Value"
+        ].sum()
 
         # Unstack back to wide format
         aggregated = grouped.unstack(level=["CountryCol", "industryCol"])
