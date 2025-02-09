@@ -1,5 +1,7 @@
 # IO Disaggregation Tools
 
+[![Tests](https://github.com/macro-cosm/io-disaggregation/actions/workflows/test.yml/badge.svg)](https://github.com/macro-cosm/io-disaggregation/actions/workflows/test.yml)
+
 A Python package for reading and processing Inter-Country Input-Output (ICIO) tables, with a focus on sector disaggregation.
 
 ## Features
