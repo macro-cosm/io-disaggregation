@@ -1,0 +1,410 @@
+"""Tests for the block structure handling module."""
+
+import logging
+import numpy as np
+import pandas as pd
+import pytest
+
+from disag_tools.readers.blocks import DisaggregationBlocks, SectorInfo
+
+# Configure logging for tests
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+
+@pytest.fixture
+def sample_single_region_tech_coef():
+    """Create a sample technical coefficients matrix for single region."""
+    sectors = ["A01", "A02", "A03"]  # A03 will be disaggregated
+    data = np.array(
+        [
+            [0.1, 0.2, 0.3],
+            [0.4, 0.5, 0.6],
+            [0.7, 0.8, 0.9],
+        ]
+    )
+    return pd.DataFrame(data, index=sectors, columns=sectors)
+
+
+@pytest.fixture
+def sample_multi_region_tech_coef():
+    """Create a sample technical coefficients matrix for multi region."""
+    # Create indices with A03 to be disaggregated
+    indices = [
+        ("USA", "A01"),
+        ("USA", "A02"),
+        ("USA", "A03"),
+        ("CAN", "A01"),
+        ("CAN", "A02"),
+        ("CAN", "A03"),
+    ]
+    data = np.array(
+        [
+            [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            [0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+            [0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+            [0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+            [0.5, 0.6, 0.7, 0.8, 0.9, 0.1],
+            [0.6, 0.7, 0.8, 0.9, 0.1, 0.2],
+        ]
+    )
+    return pd.DataFrame(data, index=indices, columns=indices)
+
+
+@pytest.fixture
+def single_region_blocks(sample_single_region_tech_coef):
+    """Create sample DisaggregationBlocks for single region."""
+    sectors_to_disaggregate = [
+        ("A03", "Manufacturing", 3),  # A03 splits into 3 subsectors
+    ]
+    return DisaggregationBlocks.from_technical_coefficients(sample_single_region_tech_coef, sectors_to_disaggregate)
+
+
+@pytest.fixture
+def multi_region_blocks(sample_multi_region_tech_coef):
+    """Create sample DisaggregationBlocks for multi region."""
+    sectors_to_disaggregate = [
+        (("USA", "A03"), "USA Manufacturing", 3),  # USA-A03 splits into 3
+        (("CAN", "A03"), "CAN Manufacturing", 3),  # CAN-A03 splits into 3
+    ]
+    return DisaggregationBlocks.from_technical_coefficients(sample_multi_region_tech_coef, sectors_to_disaggregate)
+
+
+def test_sector_info_single_region(single_region_blocks):
+    """Test SectorInfo properties for single-region case."""
+    sector = single_region_blocks.get_sector_info(1)
+    assert not sector.is_multi_region
+    assert sector.country is None
+    assert sector.sector == "A03"
+    assert sector.k == 3
+
+
+def test_sector_info_multi_region(multi_region_blocks):
+    """Test SectorInfo properties for multi-region case."""
+    sector = multi_region_blocks.get_sector_info(1)
+    assert sector.is_multi_region
+    assert sector.country == "USA"
+    assert sector.sector == "A03"
+    assert sector.k == 3
+
+
+def test_blocks_properties_single_region(single_region_blocks):
+    """Test basic properties for single-region case."""
+    assert not single_region_blocks.is_multi_region
+    assert single_region_blocks.N == 3  # Total sectors
+    assert single_region_blocks.K == 1  # Number of sectors being disaggregated (A03)
+    assert single_region_blocks.M == 3  # Total subsectors (3 for A03)
+
+
+def test_blocks_properties_multi_region(multi_region_blocks):
+    """Test basic properties for multi-region case."""
+    assert multi_region_blocks.is_multi_region
+    assert multi_region_blocks.N == 6  # Total sectors (2 countries × 3 sectors)
+    assert multi_region_blocks.K == 2  # Number of sectors being disaggregated
+    assert multi_region_blocks.M == 6  # Total subsectors (2×3 for USA-A03 and 2×3 for CAN-A03)
+
+
+def test_get_A0_single_region(single_region_blocks):
+    """Test getting A₀ block for single-region case."""
+    A0 = single_region_blocks.get_A0()
+    assert isinstance(A0, np.ndarray)
+    # Should be 2×2 for A01 and A02 (undisaggregated)
+    assert A0.shape == (2, 2)
+
+
+def test_get_A0_multi_region(multi_region_blocks):
+    """Test getting A₀ block for multi-region case."""
+    A0 = multi_region_blocks.get_A0()
+    assert isinstance(A0, np.ndarray)
+    # Should be 4×4 for USA/CAN-A01/A02 (undisaggregated)
+    assert A0.shape == (4, 4)
+
+
+def test_get_B_single_region(single_region_blocks, caplog):
+    """Test getting B block for single region case."""
+    caplog.set_level(logging.DEBUG)
+
+    # Log initial state
+    logger.debug("Testing get_B for single region")
+    logger.debug(f"Matrix shape: {single_region_blocks.reordered_matrix.shape}")
+    logger.debug(f"Sectors: {[s.sector_id for s in single_region_blocks.sectors]}")
+    logger.debug(f"N={single_region_blocks.N}, K={single_region_blocks.K}, M={single_region_blocks.M}")
+
+    # Get B block for first sector (A03)
+    B1 = single_region_blocks.get_B(1)
+    logger.debug(f"B1 shape: {B1.shape}")
+    logger.debug(
+        f"Expected shape: ({single_region_blocks.N - single_region_blocks.K}, {single_region_blocks.sectors[0].k})"
+    )
+
+    # Test shape - should be (2 undisaggregated rows × 3 A03 subsectors)
+    N_K = single_region_blocks.N - single_region_blocks.K  # 2 (A01, A02)
+    k1 = single_region_blocks.sectors[0].k  # 3 subsectors for A03
+    assert B1.shape == (N_K, k1), f"Expected shape ({N_K}, {k1}), got {B1.shape}"
+
+
+def test_get_B_multi_region(multi_region_blocks, caplog):
+    """Test getting B block for multi region case."""
+    caplog.set_level(logging.DEBUG)
+
+    # Log initial state
+    logger.debug("Testing get_B for multi region")
+    logger.debug(f"Matrix shape: {multi_region_blocks.reordered_matrix.shape}")
+    logger.debug(f"Sectors: {[s.sector_id for s in multi_region_blocks.sectors]}")
+    logger.debug(f"N={multi_region_blocks.N}, K={multi_region_blocks.K}, M={multi_region_blocks.M}")
+
+    # Get B block for first sector (USA-A03)
+    B1 = multi_region_blocks.get_B(1)
+    logger.debug(f"B1 shape: {B1.shape}")
+    logger.debug(
+        f"Expected shape: ({multi_region_blocks.N - multi_region_blocks.K}, {multi_region_blocks.sectors[0].k})"
+    )
+
+    # Test shape - should be (4 undisaggregated rows × 3 USA-A03 subsectors)
+    N_K = multi_region_blocks.N - multi_region_blocks.K  # 4 (USA/CAN-A01/A02)
+    k1 = multi_region_blocks.sectors[0].k  # 3 subsectors for USA-A03
+    assert B1.shape == (N_K, k1), f"Expected shape ({N_K}, {k1}), got {B1.shape}"
+
+    # Get B block for second sector (CAN-A03)
+    B2 = multi_region_blocks.get_B(2)
+    logger.debug(f"B2 shape: {B2.shape}")
+    logger.debug(f"Expected shape: ({N_K}, {multi_region_blocks.sectors[1].k})")
+    assert B2.shape == (N_K, k1)  # Same shape as B1 since both split into 3
+
+
+def test_matrix_reordering_single_region(single_region_blocks, caplog):
+    """Test matrix reordering for single region case."""
+    caplog.set_level(logging.DEBUG)
+
+    logger.debug("Testing matrix reordering for single region")
+    logger.debug(f"Original index: {single_region_blocks.reordered_matrix.index.tolist()}")
+    logger.debug(f"Original columns: {single_region_blocks.reordered_matrix.columns.tolist()}")
+
+    # Check that undisaggregated sectors come first
+    undisaggregated = ["A01", "A02"]  # These should come first
+    disaggregated = ["A03"]  # This is being disaggregated
+
+    actual_order = single_region_blocks.reordered_matrix.index.tolist()
+    logger.debug(f"Expected order: {undisaggregated + disaggregated}")
+    logger.debug(f"Actual order: {actual_order}")
+
+    # Check index order
+    assert actual_order[: len(undisaggregated)] == undisaggregated
+    assert all(d in actual_order[len(undisaggregated) :] for d in disaggregated)
+
+    # Check that columns match index exactly
+    assert (
+        single_region_blocks.reordered_matrix.index.tolist() == single_region_blocks.reordered_matrix.columns.tolist()
+    )
+
+    # Verify that all expected sectors are present
+    all_sectors = set(undisaggregated + disaggregated)
+    assert set(single_region_blocks.reordered_matrix.index) == all_sectors
+    assert set(single_region_blocks.reordered_matrix.columns) == all_sectors
+
+    # Verify that the matrix shape matches the number of sectors
+    assert single_region_blocks.reordered_matrix.shape == (len(all_sectors), len(all_sectors))
+
+    # Verify that the order is consistent with sector indices
+    for n, sector_info in enumerate(single_region_blocks.sectors, start=1):
+        sector_position = actual_order.index(sector_info.sector_id)
+        # Position should be after all undisaggregated sectors
+        assert sector_position >= len(undisaggregated)
+        # And in the same order as the sectors list
+        if n > 1:
+            prev_sector = single_region_blocks.sectors[n - 2]
+            prev_position = actual_order.index(prev_sector.sector_id)
+            assert sector_position > prev_position
+
+
+def test_matrix_reordering_multi_region(multi_region_blocks, caplog):
+    """Test matrix reordering for multi region case."""
+    caplog.set_level(logging.DEBUG)
+
+    logger.debug("Testing matrix reordering for multi region")
+    logger.debug(f"Original index: {multi_region_blocks.reordered_matrix.index.tolist()}")
+    logger.debug(f"Original columns: {multi_region_blocks.reordered_matrix.columns.tolist()}")
+
+    # Check that undisaggregated sectors come first, in alphabetical order by country
+    undisaggregated = [("CAN", "A01"), ("CAN", "A02"), ("USA", "A01"), ("USA", "A02")]  # Alphabetical order
+    disaggregated = [("CAN", "A03"), ("USA", "A03")]  # These are being disaggregated
+
+    actual_order = multi_region_blocks.reordered_matrix.index.tolist()
+    logger.debug(f"Expected order: {undisaggregated + disaggregated}")
+    logger.debug(f"Actual order: {actual_order}")
+
+    # Check index order
+    assert actual_order[: len(undisaggregated)] == undisaggregated
+    assert all(d in actual_order[len(undisaggregated) :] for d in disaggregated)
+
+    # Check that columns match index exactly
+    assert multi_region_blocks.reordered_matrix.index.tolist() == multi_region_blocks.reordered_matrix.columns.tolist()
+
+    # Verify that all expected pairs are present
+    all_pairs = set(undisaggregated + disaggregated)
+    assert set(multi_region_blocks.reordered_matrix.index) == all_pairs
+    assert set(multi_region_blocks.reordered_matrix.columns) == all_pairs
+
+    # Verify that the matrix shape matches the number of pairs
+    assert multi_region_blocks.reordered_matrix.shape == (len(all_pairs), len(all_pairs))
+
+    # Verify that the order is consistent with sector indices
+    for n, sector_info in enumerate(multi_region_blocks.sectors, start=1):
+        sector_position = actual_order.index(sector_info.sector_id)
+        # Position should be after all undisaggregated sectors
+        assert sector_position >= len(undisaggregated)
+        # And in the same order as the sectors list
+        if n > 1:
+            prev_sector = multi_region_blocks.sectors[n - 2]
+            prev_position = actual_order.index(prev_sector.sector_id)
+            assert sector_position > prev_position
+
+
+def test_get_C_single_region(single_region_blocks, caplog):
+    """Test getting C block for single region case."""
+    caplog.set_level(logging.DEBUG)
+
+    # Log initial state
+    logger.debug("Testing get_C for single region")
+    logger.debug(f"Matrix shape: {single_region_blocks.reordered_matrix.shape}")
+    logger.debug(f"Sectors: {[s.sector_id for s in single_region_blocks.sectors]}")
+    logger.debug(f"N={single_region_blocks.N}, K={single_region_blocks.K}, M={single_region_blocks.M}")
+
+    # Get C block for first sector (A03)
+    C1 = single_region_blocks.get_C(1)
+    logger.debug(f"C1 shape: {C1.shape}")
+
+    # Test shape - should be (3 A03 subsectors × 2 undisaggregated columns)
+    N_K = single_region_blocks.N - single_region_blocks.K  # 2 (A01, A02)
+    k1 = single_region_blocks.sectors[0].k  # 3 subsectors for A03
+    assert C1.shape == (k1, N_K), f"Expected shape ({k1}, {N_K}), got {C1.shape}"
+
+    # Check that all rows are identical (since they're repeated)
+    assert np.allclose(C1[0], C1[1])
+    assert np.allclose(C1[1], C1[2])
+
+
+def test_get_C_multi_region(multi_region_blocks, caplog):
+    """Test getting C block for multi region case."""
+    caplog.set_level(logging.DEBUG)
+
+    # Log initial state
+    logger.debug("Testing get_C for multi region")
+    logger.debug(f"Matrix shape: {multi_region_blocks.reordered_matrix.shape}")
+    logger.debug(f"Sectors: {[s.sector_id for s in multi_region_blocks.sectors]}")
+    logger.debug(f"N={multi_region_blocks.N}, K={multi_region_blocks.K}, M={multi_region_blocks.M}")
+
+    # Get C block for first sector (USA-A03)
+    C1 = multi_region_blocks.get_C(1)
+    logger.debug(f"C1 shape: {C1.shape}")
+
+    # Test shape - should be (3 USA-A03 subsectors × 4 undisaggregated columns)
+    N_K = multi_region_blocks.N - multi_region_blocks.K  # 4 (USA/CAN-A01/A02)
+    k1 = multi_region_blocks.sectors[0].k  # 3 subsectors for USA-A03
+    assert C1.shape == (k1, N_K), f"Expected shape ({k1}, {N_K}), got {C1.shape}"
+
+    # Check that all rows are identical (since they're repeated)
+    assert np.allclose(C1[0], C1[1])
+    assert np.allclose(C1[1], C1[2])
+
+    # Get C block for second sector (CAN-A03)
+    C2 = multi_region_blocks.get_C(2)
+    logger.debug(f"C2 shape: {C2.shape}")
+    assert C2.shape == (k1, N_K)  # Same shape as C1 since both split into 3
+
+    # Check that all rows in C2 are identical
+    assert np.allclose(C2[0], C2[1])
+    assert np.allclose(C2[1], C2[2])
+
+
+def test_get_D_single_region(single_region_blocks, caplog):
+    """Test getting D block for single region case."""
+    caplog.set_level(logging.DEBUG)
+
+    # Log initial state
+    logger.debug("Testing get_D for single region")
+    logger.debug(f"Matrix shape: {single_region_blocks.reordered_matrix.shape}")
+    logger.debug(f"Sectors: {[s.sector_id for s in single_region_blocks.sectors]}")
+
+    # Get D block for sector 1 to itself (D^{11})
+    D11 = single_region_blocks.get_D(1, 1)
+    logger.debug(f"D11 shape: {D11.shape}")
+
+    # Test shape - should be (3 A03 subsectors × 3 A03 subsectors)
+    k1 = single_region_blocks.sectors[0].k  # 3 subsectors for A03
+    assert D11.shape == (k1, k1), f"Expected shape ({k1}, {k1}), got {D11.shape}"
+
+    # Check that all elements are identical (since they're repeated)
+    assert np.allclose(D11, D11[0, 0])
+
+
+def test_get_D_multi_region(multi_region_blocks, caplog):
+    """Test getting D block for multi region case."""
+    caplog.set_level(logging.DEBUG)
+
+    # Log initial state
+    logger.debug("Testing get_D for multi region")
+    logger.debug(f"Matrix shape: {multi_region_blocks.reordered_matrix.shape}")
+    logger.debug(f"Sectors: {[s.sector_id for s in multi_region_blocks.sectors]}")
+
+    # Get D block for USA-A03 to itself (D^{11})
+    D11 = multi_region_blocks.get_D(1, 1)
+    logger.debug(f"D11 shape: {D11.shape}")
+
+    # Test shape - should be (3 USA-A03 subsectors × 3 USA-A03 subsectors)
+    k1 = multi_region_blocks.sectors[0].k  # 3 subsectors for USA-A03
+    assert D11.shape == (k1, k1), f"Expected shape ({k1}, {k1}), got {D11.shape}"
+
+    # Check that all elements are identical (since they're repeated)
+    assert np.allclose(D11, D11[0, 0])
+
+    # Get D block from USA-A03 to CAN-A03 (D^{12})
+    D12 = multi_region_blocks.get_D(1, 2)
+    logger.debug(f"D12 shape: {D12.shape}")
+
+    # Test shape - should be (3 USA-A03 subsectors × 3 CAN-A03 subsectors)
+    k2 = multi_region_blocks.sectors[1].k  # 3 subsectors for CAN-A03
+    assert D12.shape == (k1, k2), f"Expected shape ({k1}, {k2}), got {D12.shape}"
+
+    # Check that all elements are identical (since they're repeated)
+    assert np.allclose(D12, D12[0, 0])
+
+    # Get D block from CAN-A03 to USA-A03 (D^{21})
+    D21 = multi_region_blocks.get_D(2, 1)
+    logger.debug(f"D21 shape: {D21.shape}")
+    assert D21.shape == (k2, k1)
+
+    # Check that all elements are identical (since they're repeated)
+    assert np.allclose(D21, D21[0, 0])
+
+
+def test_invalid_sector_indices():
+    """Test error handling for invalid sector indices."""
+    # Create a minimal blocks object
+    matrix = pd.DataFrame([[1]], index=["A01"], columns=["A01"])
+    blocks = DisaggregationBlocks(
+        sectors=[SectorInfo(1, "A01", "Test", 2)],
+        reordered_matrix=matrix,
+    )
+
+    # Test invalid indices for get_B
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_B(0)  # Too small
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_B(2)  # Too large
+
+    # Test invalid indices for get_C
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_C(0)  # Too small
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_C(2)  # Too large
+
+    # Test invalid indices for get_D
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_D(0, 1)  # First index too small
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_D(1, 0)  # Second index too small
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_D(2, 1)  # First index too large
+    with pytest.raises(ValueError, match="out of range"):
+        blocks.get_D(1, 2)  # Second index too large
