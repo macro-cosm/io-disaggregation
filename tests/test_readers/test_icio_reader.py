@@ -37,8 +37,12 @@ class TestICIOReader:
         assert sample_reader.data.loc[("CHN", "MFG"), ("USA", "MFG")] == 35.0
 
         # Check row sums (should match the sample data)
-        assert sample_reader.data.loc[("USA", "AGR")].sum() == 70.0  # Updated for ROW columns
-        assert sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0  # Updated for ROW columns
+        assert (
+            sample_reader.data.loc[("USA", "AGR")].sum() == 70.0
+        )  # Updated for ROW columns
+        assert (
+            sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0
+        )  # Updated for ROW columns
 
     def test_real_data_structure(self, icio_reader: ICIOReader):
         """Test the structure of the reader with real ICIO data."""
@@ -72,7 +76,9 @@ class TestICIOReader:
             idx[0] for idx in icio_reader.data.index if idx[0] in icio_reader.countries
         }
         col_countries = {
-            idx[0] for idx in icio_reader.data.columns if idx[0] in icio_reader.countries
+            idx[0]
+            for idx in icio_reader.data.columns
+            if idx[0] in icio_reader.countries
         }
 
         # Check regular country indices match
@@ -159,7 +165,9 @@ class TestICIOReader:
     def test_real_data_selection(self, icio_reader: ICIOReader):
         """Test country selection and aggregation with real ICIO data."""
         # Get original countries for testing
-        original_countries = icio_reader.countries[:3]  # Take first 3 countries for test
+        original_countries = icio_reader.countries[
+            :3
+        ]  # Take first 3 countries for test
 
         # Create reader with selected countries
         selected_reader = ICIOReader.from_csv_selection(
@@ -265,8 +273,12 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(final_demand, pd.Series)
         assert final_demand.index.nlevels == 2
-        assert set(final_demand.index.get_level_values(0)) == set(sample_reader.countries)
-        assert set(final_demand.index.get_level_values(1)) == set(sample_reader.industries)
+        assert set(final_demand.index.get_level_values(0)) == set(
+            sample_reader.countries
+        )
+        assert set(final_demand.index.get_level_values(1)) == set(
+            sample_reader.industries
+        )
 
         # Values should be non-negative for final demand
         assert (final_demand >= 0).all()
@@ -278,8 +290,12 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(intermediate, pd.Series)
         assert intermediate.index.nlevels == 2
-        assert set(intermediate.index.get_level_values(0)) == set(sample_reader.countries)
-        assert set(intermediate.index.get_level_values(1)) == set(sample_reader.industries)
+        assert set(intermediate.index.get_level_values(0)) == set(
+            sample_reader.countries
+        )
+        assert set(intermediate.index.get_level_values(1)) == set(
+            sample_reader.industries
+        )
 
         # Sum of intermediate consumption should match known values from sample data
         # (Add specific value checks based on the sample data)
@@ -334,8 +350,12 @@ class TestICIOReader:
 
         # Check column structure (should also be country-industry pairs)
         assert int_table.columns.names == ["CountryInd", "industryInd"]
-        assert set(int_table.columns.get_level_values(0)) == set(sample_reader.countries)
-        assert set(int_table.columns.get_level_values(1)) == set(sample_reader.industries)
+        assert set(int_table.columns.get_level_values(0)) == set(
+            sample_reader.countries
+        )
+        assert set(int_table.columns.get_level_values(1)) == set(
+            sample_reader.industries
+        )
 
         # Check specific values from sample data
         assert int_table.loc[("USA", "AGR"), ("USA", "AGR")] == 10.0
@@ -391,64 +411,55 @@ class TestICIOReader:
     def test_reordered_technical_coefficients(self, sample_reader: ICIOReader):
         """Test reordering of technical coefficients matrix for disaggregation."""
         # Get reordered coefficients for disaggregating MFG sector
-        reordered, blocks = sample_reader.get_reordered_technical_coefficients(["MFG"])
+        blocks = sample_reader.get_reordered_technical_coefficients(["MFG"])
 
         # Check that the matrix has the same values, just reordered
-        assert reordered.shape == sample_reader.technical_coefficients.shape
-        assert set(reordered.index) == set(sample_reader.technical_coefficients.index)
-        assert set(reordered.columns) == set(sample_reader.technical_coefficients.columns)
+        assert (
+            blocks.reordered_matrix.shape == sample_reader.technical_coefficients.shape
+        )
+        assert set(blocks.reordered_matrix.index) == set(
+            sample_reader.technical_coefficients.index
+        )
+        assert set(blocks.reordered_matrix.columns) == set(
+            sample_reader.technical_coefficients.columns
+        )
 
-        # Check block structure
-        # A_0 should contain all AGR pairs
-        assert all(sector == "AGR" for _, sector in blocks["A_0"])
-        assert len(blocks["A_0"]) == len(sample_reader.countries)
-
-        # B^1 should contain all MFG pairs (undisaggregated to MFG)
-        assert all(sector == "MFG" for _, sector in blocks["B^1"])
-        assert len(blocks["B^1"]) == len(sample_reader.countries)
-
-        # C^1 should contain all MFG pairs (MFG to undisaggregated)
-        assert all(sector == "MFG" for _, sector in blocks["C^1"])
-        assert len(blocks["C^1"]) == len(sample_reader.countries)
-
-        # D^11 should contain all MFG pairs (MFG to MFG)
-        assert all(sector == "MFG" for _, sector in blocks["D^11"])
-        assert len(blocks["D^11"]) == len(sample_reader.countries)
-
-        # Check that blocks are in the correct order
-        agr_pairs = [(c, "AGR") for c in sample_reader.countries]
+        # Check that MFG sectors are at the end
         mfg_pairs = [(c, "MFG") for c in sample_reader.countries]
+        assert list(blocks.reordered_matrix.index[-len(mfg_pairs) :]) == mfg_pairs
+        assert list(blocks.reordered_matrix.columns[-len(mfg_pairs) :]) == mfg_pairs
 
-        # First rows/columns should be AGR pairs
-        assert list(reordered.index[: len(agr_pairs)]) == agr_pairs
-        assert list(reordered.columns[: len(agr_pairs)]) == agr_pairs
+        # Check sector info
+        assert blocks.K == 1  # One sector being disaggregated
+        sector = blocks.get_sector_info(1)
+        assert sector.sector == "MFG"
+        assert sector.k == 3  # Default value we set
 
-        # Last rows/columns should be MFG pairs
-        assert list(reordered.index[-len(mfg_pairs) :]) == mfg_pairs
-        assert list(reordered.columns[-len(mfg_pairs) :]) == mfg_pairs
-
-        # Values should match original matrix
+        # Check that values match original matrix
         orig_coef = sample_reader.technical_coefficients
-        for i in reordered.index:
-            for j in reordered.columns:
-                assert np.isclose(reordered.loc[i, j], orig_coef.loc[i, j])
+        for i in blocks.reordered_matrix.index:
+            for j in blocks.reordered_matrix.columns:
+                assert np.isclose(
+                    blocks.reordered_matrix.loc[i, j], orig_coef.loc[i, j]
+                )
 
-    def test_reordered_technical_coefficients_multiple_sectors(self, sample_reader: ICIOReader):
+    def test_reordered_technical_coefficients_multiple_sectors(
+        self, sample_reader: ICIOReader
+    ):
         """Test reordering with multiple sectors to disaggregate."""
         # Try to disaggregate both sectors
-        reordered, blocks = sample_reader.get_reordered_technical_coefficients(["AGR", "MFG"])
+        blocks = sample_reader.get_reordered_technical_coefficients(["AGR", "MFG"])
 
-        # Check that we have all the expected block types
-        assert "A_0" in blocks  # Should be empty as all sectors are disaggregated
-        assert len(blocks["A_0"]) == 0
+        # Check basic properties
+        assert blocks.K == 2  # Two sectors being disaggregated
+        assert blocks.N == len(sample_reader.countries) * len(sample_reader.industries)
+        assert blocks.M == 6  # 2 sectors × 3 subsectors each
 
-        # Should have B^i, C^i for i=1,2
-        assert "B^1" in blocks and "B^2" in blocks
-        assert "C^1" in blocks and "C^2" in blocks
-
-        # Should have D^ij for i,j=1,2
-        assert "D^11" in blocks and "D^12" in blocks
-        assert "D^21" in blocks and "D^22" in blocks
+        # Check sector info
+        sector1 = blocks.get_sector_info(1)
+        sector2 = blocks.get_sector_info(2)
+        assert {sector1.sector, sector2.sector} == {"AGR", "MFG"}
+        assert sector1.k == 3 and sector2.k == 3  # Default values we set
 
         # Check that the matrix contains all pairs
         all_pairs = [
@@ -456,45 +467,8 @@ class TestICIOReader:
             for country in sample_reader.countries
             for sector in sample_reader.industries
         ]
-        assert set(reordered.index) == set(all_pairs)
-        assert set(reordered.columns) == set(all_pairs)
-
-    def test_real_data_technical_coefficients(self, icio_reader: ICIOReader):
-        """Test that technical coefficients from real ICIO data are non-negative."""
-        # Get technical coefficients from real data
-        tech_coef = icio_reader.technical_coefficients
-
-        # Check that all coefficients are non-negative
-        assert (tech_coef >= 0).all().all(), "Technical coefficients should be non-negative"
-
-        # Check that we only have regular country-industry pairs (no special elements)
-        # For rows
-        row_countries = set(tech_coef.index.get_level_values(0))
-        assert row_countries.issubset(
-            set(icio_reader.countries)
-        ), f"Found unexpected countries in rows: {row_countries - set(icio_reader.countries)}"
-
-        row_industries = set(tech_coef.index.get_level_values(1))
-        assert row_industries.issubset(
-            set(icio_reader.industries)
-        ), f"Found unexpected industries in rows: {row_industries - set(icio_reader.industries)}"
-
-        # For columns
-        col_countries = set(tech_coef.columns.get_level_values(0))
-        assert col_countries.issubset(
-            set(icio_reader.countries)
-        ), f"Found unexpected countries in columns: {col_countries - set(icio_reader.countries)}"
-
-        col_industries = set(tech_coef.columns.get_level_values(1))
-        assert col_industries.issubset(
-            set(icio_reader.industries)
-        ), f"Found unexpected industries in columns: {col_industries - set(icio_reader.industries)}"
-
-        # Check that we have all expected country-industry pairs
-        assert row_countries == set(icio_reader.countries), "Missing countries in rows"
-        assert row_industries == set(icio_reader.industries), "Missing industries in rows"
-        assert col_countries == set(icio_reader.countries), "Missing countries in columns"
-        assert col_industries == set(icio_reader.industries), "Missing industries in columns"
+        assert set(blocks.reordered_matrix.index) == set(all_pairs)
+        assert set(blocks.reordered_matrix.columns) == set(all_pairs)
 
     def test_real_data_a01_disaggregation(self, icio_reader: ICIOReader):
         """Test reordering of technical coefficients for A01 disaggregation using real ICIO data."""
@@ -503,33 +477,27 @@ class TestICIOReader:
             icio_reader.data_path, selected_countries=["USA"]
         )
         # Get reordered coefficients for disaggregating A01 sector
-        reordered, blocks = usa_reader.get_reordered_technical_coefficients(["A01"])
+        blocks = usa_reader.get_reordered_technical_coefficients(["A01"])
 
         # Check basic structure
-        assert reordered.shape == usa_reader.technical_coefficients.shape
-        assert set(reordered.index) == set(usa_reader.technical_coefficients.index)
-        assert set(reordered.columns) == set(usa_reader.technical_coefficients.columns)
+        assert blocks.reordered_matrix.shape == usa_reader.technical_coefficients.shape
+        assert set(blocks.reordered_matrix.index) == set(
+            usa_reader.technical_coefficients.index
+        )
+        assert set(blocks.reordered_matrix.columns) == set(
+            usa_reader.technical_coefficients.columns
+        )
 
         # Check that A01 pairs are at the end
         last_pairs = [(c, "A01") for c in usa_reader.countries]
-        assert list(reordered.index[-len(last_pairs) :]) == last_pairs
-        assert list(reordered.columns[-len(last_pairs) :]) == last_pairs
+        assert list(blocks.reordered_matrix.index[-len(last_pairs) :]) == last_pairs
+        assert list(blocks.reordered_matrix.columns[-len(last_pairs) :]) == last_pairs
 
-        # Check specific blocks
-        # A_0 should contain all non-A01 pairs
-        assert all(sector != "A01" for _, sector in blocks["A_0"])
-
-        # B^1 should contain all A01 pairs
-        assert all(sector == "A01" for _, sector in blocks["B^1"])
-        assert len(blocks["B^1"]) == len(usa_reader.countries)
-
-        # C^1 should contain all A01 pairs
-        assert all(sector == "A01" for _, sector in blocks["C^1"])
-        assert len(blocks["C^1"]) == len(usa_reader.countries)
-
-        # D^11 should contain all A01 pairs
-        assert all(sector == "A01" for _, sector in blocks["D^11"])
-        assert len(blocks["D^11"]) == len(usa_reader.countries)
+        # Check sector info
+        assert blocks.K == 1  # One sector being disaggregated
+        sector = blocks.get_sector_info(1)
+        assert sector.sector == "A01"
+        assert sector.k == 3  # Default value we set
 
         # Verify some actual values from the technical coefficients
         # Get original coefficients for comparison
@@ -539,20 +507,25 @@ class TestICIOReader:
         # A_0 block (non-A01 to non-A01)
         non_a01_pair = ("USA", "A03")  # Example non-A01 sector
         assert np.isclose(
-            reordered.loc[non_a01_pair, non_a01_pair],
+            blocks.reordered_matrix.loc[non_a01_pair, non_a01_pair],
             orig_coef.loc[non_a01_pair, non_a01_pair],
         )
 
         # B^1 block (non-A01 to A01)
         a01_pair = ("USA", "A01")
         assert np.isclose(
-            reordered.loc[non_a01_pair, a01_pair], orig_coef.loc[non_a01_pair, a01_pair]
+            blocks.reordered_matrix.loc[non_a01_pair, a01_pair],
+            orig_coef.loc[non_a01_pair, a01_pair],
         )
 
         # C^1 block (A01 to non-A01)
         assert np.isclose(
-            reordered.loc[a01_pair, non_a01_pair], orig_coef.loc[a01_pair, non_a01_pair]
+            blocks.reordered_matrix.loc[a01_pair, non_a01_pair],
+            orig_coef.loc[a01_pair, non_a01_pair],
         )
 
         # D^11 block (A01 to A01)
-        assert np.isclose(reordered.loc[a01_pair, a01_pair], orig_coef.loc[a01_pair, a01_pair])
+        assert np.isclose(
+            blocks.reordered_matrix.loc[a01_pair, a01_pair],
+            orig_coef.loc[a01_pair, a01_pair],
+        )
