@@ -1,8 +1,8 @@
 """Module for handling block structure in disaggregation problems."""
 
+import logging
 from dataclasses import dataclass
 from typing import NamedTuple, TypeAlias
-import logging
 
 import numpy as np
 import pandas as pd
@@ -218,7 +218,8 @@ class DisaggregationBlocks:
         """
         # Create sector info objects
         sectors = [
-            SectorInfo(i + 1, sector_id, name, k) for i, (sector_id, name, k) in enumerate(sectors_to_disaggregate)
+            SectorInfo(i + 1, sector_id, name, k)
+            for i, (sector_id, name, k) in enumerate(sectors_to_disaggregate)
         ]
 
         # Determine if we're working with a multi-region table
@@ -227,7 +228,9 @@ class DisaggregationBlocks:
         # Get set of sector IDs to disaggregate
         sector_ids = {s.sector_id for s in sectors}
 
-        logger.debug(f"Creating blocks from technical coefficients matrix of shape {tech_coef.shape}")
+        logger.debug(
+            f"Creating blocks from technical coefficients matrix of shape {tech_coef.shape}"
+        )
         logger.debug(f"Sectors to disaggregate: {sector_ids}")
         logger.debug(f"Is multi-region: {is_multi_region}")
 
@@ -238,7 +241,11 @@ class DisaggregationBlocks:
             # For each sector_id in sector_ids, we need to find all country-sector pairs
             # that match the sector code
             sector_codes = {s.sector for s in sectors}
-            undisaggregated = [idx for idx in tech_coef.index if isinstance(idx, tuple) and idx[1] not in sector_codes]
+            undisaggregated = [
+                idx
+                for idx in tech_coef.index
+                if isinstance(idx, tuple) and idx[1] not in sector_codes
+            ]
 
             # Sort undisaggregated sectors by country, then sector
             def sort_key(x):
@@ -261,7 +268,11 @@ class DisaggregationBlocks:
             # Add sectors in the order they appear in sectors list
             for sector in sectors:
                 # Find all pairs that match this sector's code
-                matching_pairs = [idx for idx in tech_coef.index if isinstance(idx, tuple) and idx[1] == sector.sector]
+                matching_pairs = [
+                    idx
+                    for idx in tech_coef.index
+                    if isinstance(idx, tuple) and idx[1] == sector.sector
+                ]
                 # Add the sector's own pair first
                 if sector.sector_id not in seen_pairs and sector.sector_id in matching_pairs:
                     disaggregated.append(sector.sector_id)

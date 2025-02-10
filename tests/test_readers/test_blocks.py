@@ -1,6 +1,7 @@
 """Tests for the block structure handling module."""
 
 import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,7 +9,9 @@ import pytest
 from disag_tools.readers.blocks import DisaggregationBlocks, SectorInfo
 
 # Configure logging for tests
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +60,9 @@ def single_region_blocks(sample_single_region_tech_coef):
     sectors_to_disaggregate = [
         ("A03", "Manufacturing", 3),  # A03 splits into 3 subsectors
     ]
-    return DisaggregationBlocks.from_technical_coefficients(sample_single_region_tech_coef, sectors_to_disaggregate)
+    return DisaggregationBlocks.from_technical_coefficients(
+        sample_single_region_tech_coef, sectors_to_disaggregate
+    )
 
 
 @pytest.fixture
@@ -67,7 +72,9 @@ def multi_region_blocks(sample_multi_region_tech_coef):
         (("USA", "A03"), "USA Manufacturing", 3),  # USA-A03 splits into 3
         (("CAN", "A03"), "CAN Manufacturing", 3),  # CAN-A03 splits into 3
     ]
-    return DisaggregationBlocks.from_technical_coefficients(sample_multi_region_tech_coef, sectors_to_disaggregate)
+    return DisaggregationBlocks.from_technical_coefficients(
+        sample_multi_region_tech_coef, sectors_to_disaggregate
+    )
 
 
 def test_sector_info_single_region(single_region_blocks):
@@ -128,7 +135,9 @@ def test_get_B_single_region(single_region_blocks, caplog):
     logger.debug("Testing get_B for single region")
     logger.debug(f"Matrix shape: {single_region_blocks.reordered_matrix.shape}")
     logger.debug(f"Sectors: {[s.sector_id for s in single_region_blocks.sectors]}")
-    logger.debug(f"N={single_region_blocks.N}, K={single_region_blocks.K}, M={single_region_blocks.M}")
+    logger.debug(
+        f"N={single_region_blocks.N}, K={single_region_blocks.K}, M={single_region_blocks.M}"
+    )
 
     # Get B block for first sector (A03)
     B1 = single_region_blocks.get_B(1)
@@ -194,7 +203,8 @@ def test_matrix_reordering_single_region(single_region_blocks, caplog):
 
     # Check that columns match index exactly
     assert (
-        single_region_blocks.reordered_matrix.index.tolist() == single_region_blocks.reordered_matrix.columns.tolist()
+        single_region_blocks.reordered_matrix.index.tolist()
+        == single_region_blocks.reordered_matrix.columns.tolist()
     )
 
     # Verify that all expected sectors are present
@@ -226,7 +236,12 @@ def test_matrix_reordering_multi_region(multi_region_blocks, caplog):
     logger.debug(f"Original columns: {multi_region_blocks.reordered_matrix.columns.tolist()}")
 
     # Check that undisaggregated sectors come first, in alphabetical order by country
-    undisaggregated = [("CAN", "A01"), ("CAN", "A02"), ("USA", "A01"), ("USA", "A02")]  # Alphabetical order
+    undisaggregated = [
+        ("CAN", "A01"),
+        ("CAN", "A02"),
+        ("USA", "A01"),
+        ("USA", "A02"),
+    ]  # Alphabetical order
     disaggregated = [("CAN", "A03"), ("USA", "A03")]  # These are being disaggregated
 
     actual_order = multi_region_blocks.reordered_matrix.index.tolist()
@@ -238,7 +253,10 @@ def test_matrix_reordering_multi_region(multi_region_blocks, caplog):
     assert all(d in actual_order[len(undisaggregated) :] for d in disaggregated)
 
     # Check that columns match index exactly
-    assert multi_region_blocks.reordered_matrix.index.tolist() == multi_region_blocks.reordered_matrix.columns.tolist()
+    assert (
+        multi_region_blocks.reordered_matrix.index.tolist()
+        == multi_region_blocks.reordered_matrix.columns.tolist()
+    )
 
     # Verify that all expected pairs are present
     all_pairs = set(undisaggregated + disaggregated)
@@ -268,7 +286,9 @@ def test_get_C_single_region(single_region_blocks, caplog):
     logger.debug("Testing get_C for single region")
     logger.debug(f"Matrix shape: {single_region_blocks.reordered_matrix.shape}")
     logger.debug(f"Sectors: {[s.sector_id for s in single_region_blocks.sectors]}")
-    logger.debug(f"N={single_region_blocks.N}, K={single_region_blocks.K}, M={single_region_blocks.M}")
+    logger.debug(
+        f"N={single_region_blocks.N}, K={single_region_blocks.K}, M={single_region_blocks.M}"
+    )
 
     # Get C block for first sector (A03)
     C1 = single_region_blocks.get_C(1)

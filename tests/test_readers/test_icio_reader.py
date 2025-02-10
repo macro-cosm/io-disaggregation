@@ -37,12 +37,8 @@ class TestICIOReader:
         assert sample_reader.data.loc[("CHN", "MFG"), ("USA", "MFG")] == 35.0
 
         # Check row sums (should match the sample data)
-        assert (
-            sample_reader.data.loc[("USA", "AGR")].sum() == 70.0
-        )  # Updated for ROW columns
-        assert (
-            sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0
-        )  # Updated for ROW columns
+        assert sample_reader.data.loc[("USA", "AGR")].sum() == 70.0  # Updated for ROW columns
+        assert sample_reader.data.loc[("CHN", "MFG")].sum() == 180.0  # Updated for ROW columns
 
     def test_real_data_structure(self, icio_reader: ICIOReader):
         """Test the structure of the reader with real ICIO data."""
@@ -76,9 +72,7 @@ class TestICIOReader:
             idx[0] for idx in icio_reader.data.index if idx[0] in icio_reader.countries
         }
         col_countries = {
-            idx[0]
-            for idx in icio_reader.data.columns
-            if idx[0] in icio_reader.countries
+            idx[0] for idx in icio_reader.data.columns if idx[0] in icio_reader.countries
         }
 
         # Check regular country indices match
@@ -165,9 +159,7 @@ class TestICIOReader:
     def test_real_data_selection(self, icio_reader: ICIOReader):
         """Test country selection and aggregation with real ICIO data."""
         # Get original countries for testing
-        original_countries = icio_reader.countries[
-            :3
-        ]  # Take first 3 countries for test
+        original_countries = icio_reader.countries[:3]  # Take first 3 countries for test
 
         # Create reader with selected countries
         selected_reader = ICIOReader.from_csv_selection(
@@ -273,12 +265,8 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(final_demand, pd.Series)
         assert final_demand.index.nlevels == 2
-        assert set(final_demand.index.get_level_values(0)) == set(
-            sample_reader.countries
-        )
-        assert set(final_demand.index.get_level_values(1)) == set(
-            sample_reader.industries
-        )
+        assert set(final_demand.index.get_level_values(0)) == set(sample_reader.countries)
+        assert set(final_demand.index.get_level_values(1)) == set(sample_reader.industries)
 
         # Values should be non-negative for final demand
         assert (final_demand >= 0).all()
@@ -290,12 +278,8 @@ class TestICIOReader:
         # Check that we get the expected structure
         assert isinstance(intermediate, pd.Series)
         assert intermediate.index.nlevels == 2
-        assert set(intermediate.index.get_level_values(0)) == set(
-            sample_reader.countries
-        )
-        assert set(intermediate.index.get_level_values(1)) == set(
-            sample_reader.industries
-        )
+        assert set(intermediate.index.get_level_values(0)) == set(sample_reader.countries)
+        assert set(intermediate.index.get_level_values(1)) == set(sample_reader.industries)
 
         # Sum of intermediate consumption should match known values from sample data
         # (Add specific value checks based on the sample data)
@@ -350,12 +334,8 @@ class TestICIOReader:
 
         # Check column structure (should also be country-industry pairs)
         assert int_table.columns.names == ["CountryInd", "industryInd"]
-        assert set(int_table.columns.get_level_values(0)) == set(
-            sample_reader.countries
-        )
-        assert set(int_table.columns.get_level_values(1)) == set(
-            sample_reader.industries
-        )
+        assert set(int_table.columns.get_level_values(0)) == set(sample_reader.countries)
+        assert set(int_table.columns.get_level_values(1)) == set(sample_reader.industries)
 
         # Check specific values from sample data
         assert int_table.loc[("USA", "AGR"), ("USA", "AGR")] == 10.0
@@ -414,12 +394,8 @@ class TestICIOReader:
         blocks = sample_reader.get_reordered_technical_coefficients(["MFG"])
 
         # Check that the matrix has the same values, just reordered
-        assert (
-            blocks.reordered_matrix.shape == sample_reader.technical_coefficients.shape
-        )
-        assert set(blocks.reordered_matrix.index) == set(
-            sample_reader.technical_coefficients.index
-        )
+        assert blocks.reordered_matrix.shape == sample_reader.technical_coefficients.shape
+        assert set(blocks.reordered_matrix.index) == set(sample_reader.technical_coefficients.index)
         assert set(blocks.reordered_matrix.columns) == set(
             sample_reader.technical_coefficients.columns
         )
@@ -439,13 +415,9 @@ class TestICIOReader:
         orig_coef = sample_reader.technical_coefficients
         for i in blocks.reordered_matrix.index:
             for j in blocks.reordered_matrix.columns:
-                assert np.isclose(
-                    blocks.reordered_matrix.loc[i, j], orig_coef.loc[i, j]
-                )
+                assert np.isclose(blocks.reordered_matrix.loc[i, j], orig_coef.loc[i, j])
 
-    def test_reordered_technical_coefficients_multiple_sectors(
-        self, sample_reader: ICIOReader
-    ):
+    def test_reordered_technical_coefficients_multiple_sectors(self, sample_reader: ICIOReader):
         """Test reordering with multiple sectors to disaggregate."""
         # Try to disaggregate both sectors
         blocks = sample_reader.get_reordered_technical_coefficients(["AGR", "MFG"])
@@ -481,9 +453,7 @@ class TestICIOReader:
 
         # Check basic structure
         assert blocks.reordered_matrix.shape == usa_reader.technical_coefficients.shape
-        assert set(blocks.reordered_matrix.index) == set(
-            usa_reader.technical_coefficients.index
-        )
+        assert set(blocks.reordered_matrix.index) == set(usa_reader.technical_coefficients.index)
         assert set(blocks.reordered_matrix.columns) == set(
             usa_reader.technical_coefficients.columns
         )
