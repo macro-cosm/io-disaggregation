@@ -310,6 +310,71 @@ sector_info = blocks.get_sector_info(1)
 print(f"Sector {sector_info.name} splits into {sector_info.k} subsectors")
 ```
 
+### DisaggregationTargets Class
+
+The `DisaggregationTargets` class is responsible for constructing target vectors for disaggregation problems. For each sector `n` being disaggregated, it constructs a target vector Y^n that contains:
+
+1. B^n: Original flows from undisaggregated sectors to sector n
+2. C^n: Original flows from sector n to undisaggregated sectors
+3. D^n: Original flows between sector n and other disaggregated sectors
+4. w^n: Relative output weights for sector n's subsectors
+
+#### Key Features
+
+- Support for both single-region and multi-region IO tables
+- Flexible sector identification using indices or sector IDs
+- Comprehensive weight validation and error handling
+- Efficient block extraction and vector construction
+
+#### Methods
+
+1. **get_weights**
+   ```python
+   def get_weights(self, sector_info: SectorInfo) -> np.ndarray:
+       """Get the relative output weights for a sector's subsectors."""
+   ```
+   - Returns array of weights, one per subsector
+   - Handles both single-region and multi-region cases
+   - Validates weight consistency and completeness
+
+2. **get_target_vector**
+   ```python
+   def get_target_vector(self, n: int) -> np.ndarray:
+       """Construct the target vector Y^n for sector n."""
+   ```
+   - Constructs target vector using sector index (1-based)
+   - Returns concatenated array [B^n, C^n, D^n, w^n]
+   - Validates sector index and configuration
+
+3. **get_target_vector_by_sector_id**
+   ```python
+   def get_target_vector_by_sector_id(self, sector_id: SectorId) -> np.ndarray:
+       """Construct the target vector Y^n for a sector identified by its ID."""
+   ```
+   - Accepts sector ID (str for single-region, tuple[str, str] for multi-region)
+   - Returns same structure as get_target_vector
+   - Raises ValueError if sector ID not found
+
+#### Usage Examples
+
+```python
+from disag_tools.disaggregation.targets import DisaggregationTargets
+from disag_tools.configurations.config import DisaggregationConfig
+
+# Create targets instance
+targets = DisaggregationTargets(blocks, config)
+
+# Get target vector using index
+Y1 = targets.get_target_vector(1)  # First sector
+
+# Get target vector using sector ID
+# Single region case
+Y_agr = targets.get_target_vector_by_sector_id("A01")
+
+# Multi-region case
+Y_usa_agr = targets.get_target_vector_by_sector_id(("USA", "A01"))
+```
+
 ## Usage Examples
 
 ### Basic Usage
