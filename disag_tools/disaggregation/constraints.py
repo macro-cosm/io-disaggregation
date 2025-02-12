@@ -27,23 +27,23 @@ def generate_M1_block(N_K: int, k: int, weights: Array) -> Array:
 
     Returns:
         Array of shape (N_K, N_K * k) representing M₁
+        Each row i of M₁ contains the weights in positions (i*k) to ((i+1)*k-1)
     """
     if len(weights) != k:
         raise ValueError(f"Expected {k} weights, got {len(weights)}")
 
-    # Create N_K blocks, each containing the weights in the appropriate position
-    blocks = []
-    for i in range(N_K):
-        # Create a row of zeros
-        row = np.zeros((1, N_K * k))
-        # Place weights in the correct position
-        row[0, i * k : (i + 1) * k] = weights
-        blocks.append(row)
+    # Initialize zero matrix of shape (N_K, N_K * k)
+    M1 = np.zeros((N_K, N_K * k))
 
-    # Stack all rows vertically
-    M1 = np.vstack(blocks)
+    # For each undisaggregated sector i
+    for i in range(N_K):
+        # Place weights in positions (i*k) to ((i+1)*k-1) of row i
+        M1[i, i * k : (i + 1) * k] = weights
 
     logger.debug(f"Generated M1 block of shape {M1.shape}")
+    logger.debug(f"M1 block has {np.count_nonzero(M1)} nonzero elements")
+    logger.debug(f"M1 block row sums: {M1.sum(axis=1)}")
+
     return M1
 
 
@@ -322,25 +322,34 @@ def generate_M_n_matrix(
     # Create zero blocks for padding
     logger.info("Creating zero blocks for padding...")
 
+    # Calculate total columns needed
+    total_cols = 2 * N_K * k_n + total_cols_G + k_n
+    logger.debug(f"Total columns needed: {total_cols}")
+
     # First row: [M1 | 0]
-    Z1 = np.zeros((N_K, N_K * k_n + total_cols_G + k_n))  # Zeros after M1
+    Z1 = np.zeros((N_K, total_cols - M1.shape[1]))  # Zeros after M1
     row1 = np.hstack([M1, Z1])
+    logger.debug(f"Row 1 shape: {row1.shape}")
 
     # Second row: [0 | M2 | 0]
-    Z2 = np.zeros((N_K, N_K * k_n))  # Zeros before M2
-    Z2b = np.zeros((N_K, total_cols_G + k_n))  # Zeros after M2
-    row2 = np.hstack([Z2, M2, Z2b])
+    Z2a = np.zeros((N_K, N_K * k_n))  # Zeros before M2
+    Z2b = np.zeros((N_K, total_cols - Z2a.shape[1] - M2.shape[1]))  # Zeros after M2
+    row2 = np.hstack([Z2a, M2, Z2b])
+    logger.debug(f"Row 2 shape: {row2.shape}")
 
     # Third row: [0 | 0 | M3 | 0]
-    Z3 = np.zeros((K, 2 * N_K * k_n))  # Zeros before M3
-    Z3b = np.zeros((K, k_n))  # Zeros after M3
-    row3 = np.hstack([Z3, M3, Z3b])
+    Z3a = np.zeros((K, 2 * N_K * k_n))  # Zeros before M3
+    Z3b = np.zeros((K, total_cols - Z3a.shape[1] - M3.shape[1]))  # Zeros after M3
+    row3 = np.hstack([Z3a, M3, Z3b])
+    logger.debug(f"Row 3 shape: {row3.shape}")
 
     # Fourth row: [0 | M5 | M4 | I]
-    Z4 = np.zeros((k_n, N_K * k_n))  # Zeros before M5
-    row4 = np.hstack([Z4, M5, M4, I_kn])
-
-    logger.debug(f"Row shapes: {row1.shape}, {row2.shape}, {row3.shape}, {row4.shape}")
+    Z4a = np.zeros((k_n, N_K * k_n))  # Zeros before M5
+    Z4b = np.zeros(
+        (k_n, total_cols - Z4a.shape[1] - M5.shape[1] - M4.shape[1] - I_kn.shape[1])
+    )  # Zeros after I
+    row4 = np.hstack([Z4a, M5, M4, I_kn, Z4b])
+    logger.debug(f"Row 4 shape: {row4.shape}")
 
     # Stack all rows vertically
     M_n = np.vstack([row1, row2, row3, row4])

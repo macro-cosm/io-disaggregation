@@ -117,3 +117,41 @@ def sample_csv(tmp_path_factory) -> Path:
     with open(csv_path, "w", newline="") as f:  # Use newline="" to ensure consistent line endings
         f.write(SAMPLE_DATA)
     return csv_path
+
+
+@pytest.fixture(scope="session")
+def usa_reader(icio_reader: ICIOReader) -> ICIOReader:
+    """
+    Get a USA-only reader with original sectors (A01 and A03 separate).
+
+    This fixture provides a reader with only USA data, used for testing
+    the disaggregation machinery with known aggregation cases.
+
+    Args:
+        icio_reader: Full ICIO reader (from fixture)
+
+    Returns:
+        ICIOReader: USA-only reader with original sectors
+    """
+    return ICIOReader.from_csv_selection(icio_reader.data_path, selected_countries=["USA"])
+
+
+@pytest.fixture(scope="session")
+def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
+    """
+    Get a USA-only reader with A01 and A03 aggregated into sector "A".
+
+    This fixture provides a reader with aggregated data that matches
+    the test case in the disaggregation plan.
+
+    Args:
+        icio_reader: Full ICIO reader (from fixture)
+
+    Returns:
+        ICIOReader: USA-only reader with aggregated sectors
+    """
+    return ICIOReader.from_csv_with_aggregation(
+        icio_reader.data_path,
+        selected_countries=["USA"],
+        industry_aggregation={"A": ["A01", "A03"]},
+    )

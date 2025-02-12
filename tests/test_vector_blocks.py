@@ -33,7 +33,10 @@ Array = NDArray[np.float64]
 @pytest.fixture
 def sample_E_block() -> tuple[pd.DataFrame, Array]:
     """Create a sample E block and its expected flattened form."""
-    # Create 3x2 block (3 undisaggregated sectors, 2 subsectors)
+    # Create N_K×k_n block where:
+    # - N_K = 3 (3 undisaggregated sectors)
+    # - k_n = 2 (2 subsectors)
+    # So shape should be (3, 2)
     E = pd.DataFrame(
         [
             [0.1, 0.2],  # First undisaggregated sector to subsectors
@@ -224,12 +227,12 @@ def test_extract_blocks_shapes(sample_reader: ICIOReader):
     k_l = [k_n]  # Only one sector being disaggregated
     total_cols = sum(k_l)  # Total number of subsectors across all sectors l
 
-    assert E.shape == (N_K, k_n)  # (3, 1) - flows from all countries to USA
-    assert F.shape == (k_n, N_K)  # (1, 3) - flows from USA to all countries
+    assert E.shape == (N_K, k_n)  # (3, 1) - flows from undisaggregated sectors to subsectors
+    assert F.shape == (k_n, N_K)  # (1, 3) - flows from subsectors to undisaggregated sectors
     assert G.shape == (
         k_n,
         total_cols,
-    )  # (1, 1) - flows from USA subsectors to all subsectors, summed across countries
+    )  # (1, 1) - flows between subsectors, summed across countries
 
 
 def test_extract_blocks_values(sample_reader: ICIOReader):

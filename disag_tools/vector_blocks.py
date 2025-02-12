@@ -32,7 +32,7 @@ def flatten_E_block(E: pd.DataFrame, N_K: int, k_n: int) -> Array:
     E_{11}^n, E_{12}^n, ..., E_{1k_n}^n,
     E_{21}^n, E_{22}^n, ..., E_{2k_n}^n,
     ...,
-    E_{(N-K)1}^n, E_{(N-K)2}^n, ..., E_{(N-K)k_n}^n
+    E_{N_K1}^n, E_{N_K2}^n, ..., E_{N_Kk_n}^n
 
     Args:
         E: DataFrame with flows from undisaggregated to disaggregated sectors
@@ -300,10 +300,10 @@ def blocks_to_vector(
     logger.info(f"Undisaggregated sectors: {undisaggregated}")
     logger.info(f"Countries in reader: {reader.countries}")
 
-    # Extract blocks
-    E = extract_E_block(reader, undisaggregated, sectors_to_disaggregate)
-    F = extract_F_block(reader, undisaggregated, sectors_to_disaggregate)
-    G = extract_G_block(reader, sectors_to_disaggregate, [sectors_to_disaggregate])
+    # Extract blocks using the new ICIOReader methods
+    E = reader.get_E_block(undisaggregated, sectors_to_disaggregate)
+    F = reader.get_F_block(undisaggregated, sectors_to_disaggregate)
+    G = reader.get_G_block(sectors_to_disaggregate, [sectors_to_disaggregate])
 
     # Get dimensions
     N_K = len(undisaggregated) * len(reader.countries)
@@ -358,7 +358,7 @@ def vector_to_blocks(
         Tuple of (E, F, G, b) arrays in their original block forms
     """
     # Calculate component sizes
-    E_size = N_K * k_n
+    E_size = N_K * k_n * k_n
     F_size = N_K * k_n
     G_size = k_n * sum(k_l)
     b_size = k_n
