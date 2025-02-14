@@ -15,9 +15,7 @@ from disag_tools.disaggregation.constraints import (
 )
 
 # Configure logging for tests
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -489,3 +487,80 @@ def test_M_n_matrix_invalid_sector_index():
     # Test index too large
     with pytest.raises(ValueError, match="Sector index 2 out of range"):
         generate_M_n_matrix(k_n, N_K, 2, weights_n, weights_l, x, z_l)
+
+
+def test_M5_block_with_icio_data(usa_reader):
+    """Test M5 block shape with real ICIO data, pretending to have a fictitious sector A that is disaggregated into A01 and A03 (real sectors).
+
+    The M₅ block should have shape (k_n × k_n*N_K) where:
+    - k_n is the number of subsectors for sector n (2 in our case: A01, A03)
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries (USA + ROW in our case)
+    """
+    # Setup: Define sectors
+    disaggregated_sectors = ["A01", "A03"]  # Sector n's subsectors
+    k_n = len(disaggregated_sectors)  # Should be 2
+
+    # Get undisaggregated sectors (all except A01 and A03)
+    undisaggregated = [s for s in usa_reader.industries if s not in disaggregated_sectors]
+    N_u = len(undisaggregated)  # Number of undisaggregated sectors
+    N_c = len(usa_reader.countries)  # Should be 2 (USA + ROW)
+    N_K = N_u * N_c  # Total number of undisaggregated sector-country pairs
+
+    logger.debug(f"k_n = {k_n} (subsectors: {disaggregated_sectors})")
+    logger.debug(f"N_u = {N_u} (undisaggregated sectors)")
+    logger.debug(f"N_c = {N_c} (countries: {usa_reader.countries})")
+    logger.debug(f"N_K = {N_K} (total undisaggregated sector-country pairs)")
+
+    # Get outputs for undisaggregated sectors (summed across countries)
+    x = np.array([usa_reader.output_from_sums.loc[(c, s)] for c in usa_reader.countries for s in undisaggregated])
+
+    # Get total output for sector n (A01 + A03)
+    z_n = sum(usa_reader.output_from_sums.loc[("USA", s)] for s in disaggregated_sectors)
+
+    # Generate M5 block
+    M5 = generate_M5_block(k_n, x, z_n)
+
+    # Verify shape
+    expected_shape = (k_n, k_n * N_K)
+    assert M5.shape == expected_shape, f"M5 should have shape {expected_shape}, got {M5.shape}"
+
+    # Basic sanity checks
+    assert np.all(np.isfinite(M5)), "M5 contains non-finite values"
+    assert not np.all(M5 == 0), "M5 is all zeros"
+
+    # Check that each row has N_K nonzero elements
+    for i in range(k_n):
+        nonzeros_in_row = np.count_nonzero(M5[i])
+        assert nonzeros_in_row == N_K, f"Row {i} should have {N_K} nonzero elements, got {nonzeros_in_row}"
+
+
+def test_M5_block_identity_structure():
+    """Test that each k_n × k_n block in M5 is a scaled identity matrix.
+
+    According to eq:m5 in the disaggregation plan, each block should be
+    x_j/z_n times I_{k_n}, where I_{k_n} is the k_n × k_n identity matrix.
+    """
+    k_n = 2  # Sector n splits into 2 subsectors
+    x = np.array([100.0, 200.0, 300.0])  # 3 undisaggregated sectors
+    z_n = 100.0  # Output for sector n
+
+    M5 = generate_M5_block(k_n, x, z_n)
+
+    # Expected shape: (2, 6) for 3 blocks of size 2×2
+    assert M5.shape == (k_n, k_n * len(x))
+
+    # For each undisaggregated sector
+    for j, x_j in enumerate(x):
+        # Extract the j-th k_n × k_n block
+        block = M5[:, j * k_n : (j + 1) * k_n]
+
+        # Expected: x_j/z_n times identity matrix
+        expected_block = (x_j / z_n) * np.eye(k_n)
+
+        # Verify this block matches expected
+        assert np.allclose(block, expected_block), f"Block {j} does not match scaled identity matrix"
+        logger.debug(f"Block {j} with x_j={x_j}:")
+        logger.debug(f"Expected:\n{expected_block}")
+        logger.debug(f"Got:\n{block}")

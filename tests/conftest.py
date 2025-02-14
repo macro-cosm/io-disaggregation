@@ -1,6 +1,7 @@
 """Fixtures for testing the multi-sector disaggregation package."""
 
 from pathlib import Path
+import logging
 
 import pandas as pd
 import pytest
@@ -114,7 +115,9 @@ def sample_csv(tmp_path_factory) -> Path:
     """
     tmp_path = tmp_path_factory.mktemp("data")
     csv_path = tmp_path / "test_icio.csv"
-    with open(csv_path, "w", newline="") as f:  # Use newline="" to ensure consistent line endings
+    with open(
+        csv_path, "w", newline=""
+    ) as f:  # Use newline="" to ensure consistent line endings
         f.write(SAMPLE_DATA)
     return csv_path
 
@@ -125,15 +128,27 @@ def usa_reader(icio_reader: ICIOReader) -> ICIOReader:
     Get a USA-only reader with original sectors (A01 and A03 separate).
 
     This fixture provides a reader with only USA data, used for testing
-    the disaggregation machinery with known aggregation cases.
+    the disaggregation machinery with known aggregation cases. All other
+    countries are automatically aggregated into ROW.
 
     Args:
         icio_reader: Full ICIO reader (from fixture)
 
     Returns:
-        ICIOReader: USA-only reader with original sectors
+        ICIOReader: USA-only reader with original sectors and ROW
     """
-    return ICIOReader.from_csv_selection(icio_reader.data_path, selected_countries=["USA"])
+    reader = ICIOReader.from_csv_selection(
+        icio_reader.data_path, selected_countries=["USA"]
+    )
+    # Verify ROW is present
+    countries_in_index = reader.data.index.get_level_values(0).unique()
+    countries_in_cols = reader.data.columns.get_level_values(0).unique()
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Countries in index: {countries_in_index}")
+    logger.debug(f"Countries in columns: {countries_in_cols}")
+    assert "ROW" in countries_in_index, "ROW should be present in index"
+    assert "ROW" in countries_in_cols, "ROW should be present in columns"
+    return reader
 
 
 @pytest.fixture(scope="session")
@@ -142,16 +157,26 @@ def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
     Get a USA-only reader with A01 and A03 aggregated into sector "A".
 
     This fixture provides a reader with aggregated data that matches
-    the test case in the disaggregation plan.
+    the test case in the disaggregation plan. All non-USA countries
+    are automatically aggregated into ROW.
 
     Args:
         icio_reader: Full ICIO reader (from fixture)
 
     Returns:
-        ICIOReader: USA-only reader with aggregated sectors
+        ICIOReader: USA-only reader with aggregated sectors and ROW
     """
-    return ICIOReader.from_csv_with_aggregation(
+    reader = ICIOReader.from_csv_with_aggregation(
         icio_reader.data_path,
         selected_countries=["USA"],
         industry_aggregation={"A": ["A01", "A03"]},
     )
+    # Verify ROW is present
+    countries_in_index = reader.data.index.get_level_values(0).unique()
+    countries_in_cols = reader.data.columns.get_level_values(0).unique()
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Countries in index: {countries_in_index}")
+    logger.debug(f"Countries in columns: {countries_in_cols}")
+    assert "ROW" in countries_in_index, "ROW should be present in index"
+    assert "ROW" in countries_in_cols, "ROW should be present in columns"
+    return reader

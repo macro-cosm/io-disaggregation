@@ -181,42 +181,41 @@ def generate_M4_block(k_n: int, weights_l: list[Array], z_l: Array, z_n: float) 
 
 
 def generate_M5_block(k_n: int, x: Array, z_n: float) -> Array:
-    """Generate the M5 block for final demand consistency constraints.
+    """Generate the M₅ block for final demand consistency constraints.
 
-    The M5 block scales undisaggregated sector outputs by 1/z_n for final demand consistency.
-    For sector n being disaggregated, M5^n is constructed by repeating the scaled outputs
-    k_n times along the diagonal.
+    The M₅ block scales undisaggregated sector outputs by 1/z_n. According to eq:m5
+    in the disaggregation plan, it has the form:
+    M₅^n = [x₁/z_n I_{k_n} | x₂/z_n I_{k_n} | ... | x_{N-K}/z_n I_{k_n}]
+    where I_{k_n} is the k_n × k_n identity matrix.
 
     Args:
-        k_n: Number of subsectors for sector n (the sector being disaggregated)
-        x: Array of outputs x_j for undisaggregated sectors
-        z_n: Output z_n of sector n being disaggregated
+        k_n: Number of subsectors for sector n (being disaggregated).
+        x: Array of outputs for undisaggregated sectors.
+        z_n: Total output of sector n.
 
     Returns:
-        Array: M5 block matrix of shape (k_n, N_K * k_n) where N_K is the number
-              of undisaggregated sectors
+        Array: The M₅ block matrix of shape (k_n × k_n*N_K).
+
+    Raises:
+        ValueError: If no undisaggregated sector outputs are provided.
     """
-    N_K = len(x)  # Number of undisaggregated sectors
+    N_K = len(x)
     if N_K == 0:
         raise ValueError("At least one undisaggregated sector output is required")
 
-    # Scale the outputs by 1/z_n
-    scaled_outputs = x / z_n
+    # Initialize zero matrix of shape (k_n × k_n*N_K)
+    M5 = np.zeros((k_n, k_n * N_K))
 
-    # Create k_n rows, each with scaled outputs in the appropriate position
-    rows = []
-    for i in range(k_n):
-        # Create a row of zeros
-        row = np.zeros((1, N_K * k_n))
-        # Place scaled outputs in position i for each undisaggregated sector
-        for j in range(N_K):
-            row[0, j * k_n + i] = scaled_outputs[j]
-        rows.append(row)
-
-    # Stack all rows vertically
-    M5 = np.vstack(rows)
+    # For each undisaggregated sector j
+    for j in range(N_K):
+        # Create x_j/z_n times identity matrix
+        block = (x[j] / z_n) * np.eye(k_n)
+        # Place it in the correct position
+        M5[:, j * k_n : (j + 1) * k_n] = block
 
     logger.debug(f"Generated M5 block with shape {M5.shape}")
+    logger.debug(f"M5 block has {np.count_nonzero(M5)} nonzero elements")
+    logger.debug(f"M5 block row sums: {M5.sum(axis=1)}")
     return M5
 
 
@@ -261,9 +260,7 @@ def generate_M_n_matrix(
         raise ValueError(f"Sector index {n} out of range")
 
     logger.info(f"Generating M^n matrix for sector {n} with {k_n} subsectors")
-    logger.info(
-        f"System has {N_K} undisaggregated sectors and {len(weights_l)} disaggregated sectors"
-    )
+    logger.info(f"System has {N_K} undisaggregated sectors and {len(weights_l)} disaggregated sectors")
 
     # Get z_n from z_l using 1-based indexing
     z_n = z_l[n - 1]
@@ -345,9 +342,7 @@ def generate_M_n_matrix(
 
     # Fourth row: [0 | M5 | M4 | I]
     Z4a = np.zeros((k_n, N_K * k_n))  # Zeros before M5
-    Z4b = np.zeros(
-        (k_n, total_cols - Z4a.shape[1] - M5.shape[1] - M4.shape[1] - I_kn.shape[1])
-    )  # Zeros after I
+    Z4b = np.zeros((k_n, total_cols - Z4a.shape[1] - M5.shape[1] - M4.shape[1] - I_kn.shape[1]))  # Zeros after I
     row4 = np.hstack([Z4a, M5, M4, I_kn, Z4b])
     logger.debug(f"Row 4 shape: {row4.shape}")
 
