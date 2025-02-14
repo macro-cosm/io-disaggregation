@@ -260,7 +260,9 @@ def generate_M_n_matrix(
         raise ValueError(f"Sector index {n} out of range")
 
     logger.info(f"Generating M^n matrix for sector {n} with {k_n} subsectors")
-    logger.info(f"System has {N_K} undisaggregated sectors and {len(weights_l)} disaggregated sectors")
+    logger.info(
+        f"System has {N_K} undisaggregated sectors and {len(weights_l)} disaggregated sectors"
+    )
 
     # Get z_n from z_l using 1-based indexing
     z_n = z_l[n - 1]
@@ -342,7 +344,9 @@ def generate_M_n_matrix(
 
     # Fourth row: [0 | M5 | M4 | I]
     Z4a = np.zeros((k_n, N_K * k_n))  # Zeros before M5
-    Z4b = np.zeros((k_n, total_cols - Z4a.shape[1] - M5.shape[1] - M4.shape[1] - I_kn.shape[1]))  # Zeros after I
+    Z4b = np.zeros(
+        (k_n, total_cols - Z4a.shape[1] - M5.shape[1] - M4.shape[1] - I_kn.shape[1])
+    )  # Zeros after I
     row4 = np.hstack([Z4a, M5, M4, I_kn, Z4b])
     logger.debug(f"Row 4 shape: {row4.shape}")
 

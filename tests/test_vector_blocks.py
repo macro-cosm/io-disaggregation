@@ -198,7 +198,9 @@ def test_blocks_to_vector_and_back(sample_reader: ICIOReader):
     F_orig = extract_F_block(sample_reader, undisaggregated, sectors_to_disagg)
     G_orig = extract_G_block(sample_reader, sectors_to_disagg, [sectors_to_disagg])
     b_orig = sample_reader.final_demand.loc[
-        pd.MultiIndex.from_product([sample_reader.countries, sectors_to_disagg], names=["CountryInd", "industryInd"])
+        pd.MultiIndex.from_product(
+            [sample_reader.countries, sectors_to_disagg], names=["CountryInd", "industryInd"]
+        )
     ].values
 
     # Check that blocks match

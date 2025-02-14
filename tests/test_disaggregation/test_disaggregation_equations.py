@@ -20,14 +20,14 @@ from disag_tools.disaggregation.constraints import (
 )
 from disag_tools.readers.icio_reader import ICIOReader
 from disag_tools.vector_blocks import (
+    extract_F_block,
+    extract_G_block,
     flatten_E_block,
     flatten_F_block,
     flatten_G_block,
     reshape_E_block,
     reshape_F_block,
     reshape_G_block,
-    extract_F_block,
-    extract_G_block,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,8 +55,12 @@ def test_E_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
 
     # Get undisaggregated sectors (all except A01 and A03)
     undisaggregated = [s for s in usa_reader.industries if s not in disaggregated_sectors]
-    N_K = len(undisaggregated) * len(usa_reader.countries)  # Number of undisaggregated sectors across all countries
-    logger.debug(f"N_K = {N_K} (sectors: {len(undisaggregated)} × countries: {len(usa_reader.countries)})")
+    N_K = len(undisaggregated) * len(
+        usa_reader.countries
+    )  # Number of undisaggregated sectors across all countries
+    logger.debug(
+        f"N_K = {N_K} (sectors: {len(undisaggregated)} × countries: {len(usa_reader.countries)})"
+    )
     logger.debug(f"Undisaggregated sectors: {undisaggregated}")
     logger.debug(f"Countries: {usa_reader.countries}")
 
@@ -83,7 +87,9 @@ def test_E_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
     weights = np.array([total_output_A01 / total_output, total_output_A03 / total_output])
     logger.debug(f"Weights: A01={weights[0]:.3f}, A03={weights[1]:.3f}")
     # Verify weights sum to 1
-    assert weights.sum() == pytest.approx(1.0, rel=1e-2), f"Weights should sum to 1, got {weights.sum()}"
+    assert weights.sum() == pytest.approx(
+        1.0, rel=1e-2
+    ), f"Weights should sum to 1, got {weights.sum()}"
 
     # 5. Generate M₁ matrix
     M1 = generate_M1_block(N_K, k_n, weights)
@@ -122,7 +128,9 @@ def test_E_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
     assert np.all(B.values >= 0), "Found negative flows in B block"
 
     # Check that M₁ preserves flow magnitudes
-    assert np.sum(B.values) == pytest.approx(np.sum(E.values @ weights), rel=1e-2), "M₁ does not preserve total flows"
+    assert np.sum(B.values) == pytest.approx(
+        np.sum(E.values @ weights), rel=1e-2
+    ), "M₁ does not preserve total flows"
 
     logger.info("✓ E block equation verified: M₁E = B")
 
@@ -149,8 +157,12 @@ def test_F_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
 
     # Get undisaggregated sectors (all except A01 and A03)
     undisaggregated = [s for s in usa_reader.industries if s not in disaggregated_sectors]
-    N_K = len(undisaggregated) * len(usa_reader.countries)  # Number of undisaggregated sectors across all countries
-    logger.debug(f"N_K = {N_K} (sectors: {len(undisaggregated)} × countries: {len(usa_reader.countries)})")
+    N_K = len(undisaggregated) * len(
+        usa_reader.countries
+    )  # Number of undisaggregated sectors across all countries
+    logger.debug(
+        f"N_K = {N_K} (sectors: {len(undisaggregated)} × countries: {len(usa_reader.countries)})"
+    )
     logger.debug(f"Undisaggregated sectors: {undisaggregated}")
     logger.debug(f"Countries: {usa_reader.countries}")
 
@@ -195,7 +207,9 @@ def test_F_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
 
     # 6. Verify equation holds
     # Check that M₂F = C with a relative error of 1e-2
-    assert result == pytest.approx(F_agg.values.flatten(), rel=1e-2), "M₂F ≠ C: Equation does not hold"
+    assert result == pytest.approx(
+        F_agg.values.flatten(), rel=1e-2
+    ), "M₂F ≠ C: Equation does not hold"
 
     # 7. Additional sanity checks
     # Check that all flows are non-negative
@@ -203,7 +217,9 @@ def test_F_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
     assert np.all(F_agg.values >= 0), "Found negative flows in aggregated F block"
 
     # Check that M₂ preserves flow magnitudes
-    assert np.sum(F_agg.values) == pytest.approx(np.sum(F.values), rel=1e-2), "M₂ does not preserve total flows"
+    assert np.sum(F_agg.values) == pytest.approx(
+        np.sum(F.values), rel=1e-2
+    ), "M₂ does not preserve total flows"
 
     logger.info("✓ F block equation verified: M₂F = C")
 
@@ -267,7 +283,9 @@ def test_G_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
     weights = np.array([total_output_A01 / total_output, total_output_A03 / total_output])
     logger.debug(f"Weights: A01={weights[0]:.3f}, A03={weights[1]:.3f}")
     # Verify weights sum to 1
-    assert weights.sum() == pytest.approx(1.0, rel=1e-2), f"Weights should sum to 1, got {weights.sum()}"
+    assert weights.sum() == pytest.approx(
+        1.0, rel=1e-2
+    ), f"Weights should sum to 1, got {weights.sum()}"
 
     # 5. Generate M₃ matrix
     M3 = generate_M3_block(k_n, [weights])  # Pass list of weights for each sector ℓ
@@ -308,7 +326,9 @@ def test_G_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIORea
 
     # Check that M₃ preserves flow magnitudes (weighted sum)
     weighted_G_sum = np.sum(G.values @ weights)
-    assert np.sum(D.values) == pytest.approx(weighted_G_sum, rel=1e-2), "M₃ does not preserve weighted flows"
+    assert np.sum(D.values) == pytest.approx(
+        weighted_G_sum, rel=1e-2
+    ), "M₃ does not preserve weighted flows"
 
     logger.info("✓ G block equation verified: M₃G = D")
 
@@ -370,7 +390,10 @@ def test_final_demand_equation(usa_reader: ICIOReader, usa_aggregated_reader: IC
     G = usa_reader.get_G_block(disaggregated_sectors, sectors_l)
     logger.debug(f"G block shape: {G.shape}")
     logger.debug(f"Expected G shape: ({k_n}, {total_subsectors})")
-    assert G.shape == (k_n, total_subsectors), f"G block should have shape ({k_n}, {total_subsectors}), got {G.shape}"
+    assert G.shape == (
+        k_n,
+        total_subsectors,
+    ), f"G block should have shape ({k_n}, {total_subsectors}), got {G.shape}"
 
     # 3. Get outputs and calculate weights
     # Get z_1 and z_2 (outputs of A01 and A03)
@@ -389,7 +412,9 @@ def test_final_demand_equation(usa_reader: ICIOReader, usa_aggregated_reader: IC
     logger.debug(f"w_1 = z_1/z_n = {w_1:.6f}")
     logger.debug(f"w_2 = z_2/z_n = {w_2:.6f}")
     logger.debug(f"Weights: w_1 (A01)={w_1:.6f}, w_2 (A03)={w_2:.6f}")
-    assert weights_n.sum() == pytest.approx(1.0, rel=1e-2), f"Weights should sum to 1, got {weights_n.sum()}"
+    assert weights_n.sum() == pytest.approx(
+        1.0, rel=1e-2
+    ), f"Weights should sum to 1, got {weights_n.sum()}"
 
     # For M₄, we need weights and outputs for the subsectors
     weights_l = [weights_n]  # List of weights for sector A
@@ -397,7 +422,13 @@ def test_final_demand_equation(usa_reader: ICIOReader, usa_aggregated_reader: IC
     logger.debug(f"z_l (output of sector A): {z_l}")
 
     # Get x (outputs of undisaggregated sectors)
-    x = np.array([usa_reader.output_from_sums.loc[(c, s)] for c in usa_reader.countries for s in undisaggregated])
+    x = np.array(
+        [
+            usa_reader.output_from_sums.loc[(c, s)]
+            for c in usa_reader.countries
+            for s in undisaggregated
+        ]
+    )
     logger.debug(f"x shape: {x.shape}")
     logger.debug(f"Expected x shape: ({N_K},)")
     assert x.shape == (N_K,), f"x should have shape ({N_K},), got {x.shape}"
@@ -407,13 +438,17 @@ def test_final_demand_equation(usa_reader: ICIOReader, usa_aggregated_reader: IC
     logger.debug(f"M4 shape: {M4.shape}")
     expected_M4_shape = (k_n, k_n * total_subsectors)
     logger.debug(f"Expected M4 shape: {expected_M4_shape}")
-    assert M4.shape == expected_M4_shape, f"M4 should have shape {expected_M4_shape}, got {M4.shape}"
+    assert (
+        M4.shape == expected_M4_shape
+    ), f"M4 should have shape {expected_M4_shape}, got {M4.shape}"
 
     M5 = generate_M5_block(k_n, x, z_n)
     logger.debug(f"M5 shape: {M5.shape}")
     expected_M5_shape = (k_n, k_n * N_K)
     logger.debug(f"Expected M5 shape: {expected_M5_shape}")
-    assert M5.shape == expected_M5_shape, f"M5 should have shape {expected_M5_shape}, got {M5.shape}"
+    assert (
+        M5.shape == expected_M5_shape
+    ), f"M5 should have shape {expected_M5_shape}, got {M5.shape}"
 
     # Get final demand for subsectors and normalize by z_n
     b = np.array([usa_reader.final_demand[("USA", s)] for s in disaggregated_sectors]) / z_n
@@ -428,7 +463,9 @@ def test_final_demand_equation(usa_reader: ICIOReader, usa_aggregated_reader: IC
     logger.debug(f"Expected F_flat shape: ({k_n * N_K},)")
     logger.debug(f"Original F block:\n{F.values}")
     logger.debug(f"F_flat:\n{F_flat}")
-    assert F_flat.shape == (k_n * N_K,), f"F_flat should have shape ({k_n * N_K},), got {F_flat.shape}"
+    assert F_flat.shape == (
+        k_n * N_K,
+    ), f"F_flat should have shape ({k_n * N_K},), got {F_flat.shape}"
 
     G_flat = flatten_G_block(G, k_n, [k_n])
     logger.debug(f"G_flat shape: {G_flat.shape}")

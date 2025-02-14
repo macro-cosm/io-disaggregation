@@ -125,7 +125,9 @@ def flatten_G_block(G: pd.DataFrame, k_n: int, k_l: list[int]) -> Array:
     if G.shape[0] != k_n:
         raise ValueError(f"G block should have shape ({k_n}, N), got {G.shape}")
     if G.shape[1] % expected_cols != 0:
-        raise ValueError(f"G block should have number of columns divisible by {expected_cols}, got {G.shape[1]}")
+        raise ValueError(
+            f"G block should have number of columns divisible by {expected_cols}, got {G.shape[1]}"
+        )
 
     num_countries = G.shape[1] // expected_cols
     logger.debug(f"G block has {num_countries} countries")
@@ -253,7 +255,9 @@ def extract_E_block(
         [reader.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
     )
     # For disaggregated sectors, we only want the target country
-    col_idx = pd.MultiIndex.from_product([["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"])
+    col_idx = pd.MultiIndex.from_product(
+        [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
+    )
 
     # Extract block
     E = tech_coef.loc[row_idx, col_idx]
@@ -287,7 +291,9 @@ def extract_F_block(
     tech_coef = reader.technical_coefficients
 
     # For disaggregated sectors, we only want the target country
-    row_idx = pd.MultiIndex.from_product([["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"])
+    row_idx = pd.MultiIndex.from_product(
+        [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
+    )
     # Create indices for undisaggregated sectors (all countries)
     col_idx = pd.MultiIndex.from_product(
         [reader.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
@@ -331,7 +337,9 @@ def extract_G_block(
     # For sectors ℓ, we want all countries
     # Flatten the list of lists to get all subsector codes
     all_subsectors = [s for sublist in sectors_l for s in sublist]
-    col_idx = pd.MultiIndex.from_product([reader.countries, all_subsectors], names=["CountryInd", "industryInd"])
+    col_idx = pd.MultiIndex.from_product(
+        [reader.countries, all_subsectors], names=["CountryInd", "industryInd"]
+    )
 
     # Extract block
     G = tech_coef.loc[row_idx, col_idx]

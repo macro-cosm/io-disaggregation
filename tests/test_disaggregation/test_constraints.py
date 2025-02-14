@@ -15,7 +15,9 @@ from disag_tools.disaggregation.constraints import (
 )
 
 # Configure logging for tests
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -514,7 +516,13 @@ def test_M5_block_with_icio_data(usa_reader):
     logger.debug(f"N_K = {N_K} (total undisaggregated sector-country pairs)")
 
     # Get outputs for undisaggregated sectors (summed across countries)
-    x = np.array([usa_reader.output_from_sums.loc[(c, s)] for c in usa_reader.countries for s in undisaggregated])
+    x = np.array(
+        [
+            usa_reader.output_from_sums.loc[(c, s)]
+            for c in usa_reader.countries
+            for s in undisaggregated
+        ]
+    )
 
     # Get total output for sector n (A01 + A03)
     z_n = sum(usa_reader.output_from_sums.loc[("USA", s)] for s in disaggregated_sectors)
@@ -533,7 +541,9 @@ def test_M5_block_with_icio_data(usa_reader):
     # Check that each row has N_K nonzero elements
     for i in range(k_n):
         nonzeros_in_row = np.count_nonzero(M5[i])
-        assert nonzeros_in_row == N_K, f"Row {i} should have {N_K} nonzero elements, got {nonzeros_in_row}"
+        assert (
+            nonzeros_in_row == N_K
+        ), f"Row {i} should have {N_K} nonzero elements, got {nonzeros_in_row}"
 
 
 def test_M5_block_identity_structure():
@@ -560,7 +570,9 @@ def test_M5_block_identity_structure():
         expected_block = (x_j / z_n) * np.eye(k_n)
 
         # Verify this block matches expected
-        assert np.allclose(block, expected_block), f"Block {j} does not match scaled identity matrix"
+        assert np.allclose(
+            block, expected_block
+        ), f"Block {j} does not match scaled identity matrix"
         logger.debug(f"Block {j} with x_j={x_j}:")
         logger.debug(f"Expected:\n{expected_block}")
         logger.debug(f"Got:\n{block}")

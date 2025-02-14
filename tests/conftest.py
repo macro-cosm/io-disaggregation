@@ -1,7 +1,7 @@
 """Fixtures for testing the multi-sector disaggregation package."""
 
-from pathlib import Path
 import logging
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -115,9 +115,7 @@ def sample_csv(tmp_path_factory) -> Path:
     """
     tmp_path = tmp_path_factory.mktemp("data")
     csv_path = tmp_path / "test_icio.csv"
-    with open(
-        csv_path, "w", newline=""
-    ) as f:  # Use newline="" to ensure consistent line endings
+    with open(csv_path, "w", newline="") as f:  # Use newline="" to ensure consistent line endings
         f.write(SAMPLE_DATA)
     return csv_path
 
@@ -137,9 +135,7 @@ def usa_reader(icio_reader: ICIOReader) -> ICIOReader:
     Returns:
         ICIOReader: USA-only reader with original sectors and ROW
     """
-    reader = ICIOReader.from_csv_selection(
-        icio_reader.data_path, selected_countries=["USA"]
-    )
+    reader = ICIOReader.from_csv_selection(icio_reader.data_path, selected_countries=["USA"])
     # Verify ROW is present
     countries_in_index = reader.data.index.get_level_values(0).unique()
     countries_in_cols = reader.data.columns.get_level_values(0).unique()
