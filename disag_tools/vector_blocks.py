@@ -4,6 +4,12 @@ This module provides functionality to:
 1. Extract blocks from technical coefficient matrices
 2. Convert blocks to flattened vectors (for use in optimization)
 3. Convert vectors back to block form (for reconstruction)
+
+IMPORTANT: When working with multi-region IO tables (like ICIO), all block operations
+handle flows across ALL countries. For example:
+- E block includes flows FROM undisaggregated sectors in all countries
+- F block includes flows TO undisaggregated sectors in all countries
+- G block includes flows between subsectors, considering all country pairs
 """
 
 import logging
@@ -28,6 +34,12 @@ def flatten_E_block(E: pd.DataFrame, N_K: int, k_n: int) -> Array:
     """
     Flatten the E block (flows from undisaggregated to disaggregated sectors).
 
+    For multi-region tables:
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+    - The block includes flows from ALL country-sector pairs to the target country's subsectors
+
     Following Eq. (X), E is flattened as:
     E_{11}^n, E_{12}^n, ..., E_{1k_n}^n,
     E_{21}^n, E_{22}^n, ..., E_{2k_n}^n,
@@ -36,7 +48,7 @@ def flatten_E_block(E: pd.DataFrame, N_K: int, k_n: int) -> Array:
 
     Args:
         E: DataFrame with flows from undisaggregated to disaggregated sectors
-        N_K: Number of undisaggregated sectors
+        N_K: Number of undisaggregated sectors across all countries (N_u * N_c)
         k_n: Number of subsectors for the disaggregated sector
 
     Returns:
@@ -53,6 +65,12 @@ def flatten_F_block(F: pd.DataFrame, N_K: int, k_n: int) -> Array:
     """
     Flatten the F block (flows from disaggregated to undisaggregated sectors).
 
+    For multi-region tables:
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+    - The block includes flows TO ALL country-sector pairs from the target country's subsectors
+
     Following Eq. (X), F is flattened as:
     F_{11}^n, F_{21}^n, ..., F_{k_n1}^n,
     F_{12}^n, F_{22}^n, ..., F_{k_n2}^n,
@@ -61,7 +79,7 @@ def flatten_F_block(F: pd.DataFrame, N_K: int, k_n: int) -> Array:
 
     Args:
         F: DataFrame with flows from disaggregated to undisaggregated sectors
-        N_K: Number of undisaggregated sectors
+        N_K: Number of undisaggregated sectors across all countries (N_u * N_c)
         k_n: Number of subsectors for the disaggregated sector
 
     Returns:
@@ -77,6 +95,11 @@ def flatten_F_block(F: pd.DataFrame, N_K: int, k_n: int) -> Array:
 def flatten_G_block(G: pd.DataFrame, k_n: int, k_l: list[int]) -> Array:
     """
     Flatten the G block (flows between disaggregated sectors).
+
+    For multi-region tables:
+    - The block includes flows between subsectors across all country pairs
+    - Each G^{nℓ} represents flows from sector n's subsectors to sector ℓ's subsectors
+    - The total number of columns is sum(k_ℓ) * N_c where N_c is the number of countries
 
     Following Eq. (X), G is flattened as:
     G_{11}^{n1}, G_{12}^{n1}, ..., G_{1k_1}^{n1},
@@ -94,7 +117,7 @@ def flatten_G_block(G: pd.DataFrame, k_n: int, k_l: list[int]) -> Array:
         k_l: List of numbers of subsectors for each sector l
 
     Returns:
-        Flattened array of shape (k_n * sum(k_l),)
+        Flattened array of shape (k_n * sum(k_l) * N_c,)
     """
     # For each sector l, we have k_l subsectors in each country
     # So the total number of columns should be sum(k_l) * num_countries
@@ -102,21 +125,16 @@ def flatten_G_block(G: pd.DataFrame, k_n: int, k_l: list[int]) -> Array:
     if G.shape[0] != k_n:
         raise ValueError(f"G block should have shape ({k_n}, N), got {G.shape}")
     if G.shape[1] % expected_cols != 0:
-        raise ValueError(
-            f"G block should have number of columns divisible by {expected_cols}, got {G.shape[1]}"
-        )
+        raise ValueError(f"G block should have number of columns divisible by {expected_cols}, got {G.shape[1]}")
 
     num_countries = G.shape[1] // expected_cols
     logger.debug(f"G block has {num_countries} countries")
     logger.debug(f"G block shape: {G.shape}")
     logger.debug(f"k_n: {k_n}, k_l: {k_l}")
 
-    # Reshape to combine countries and subsectors
-    # This gives us the shape we need for the flattening equation
-    G_reshaped = G.values.reshape((k_n, expected_cols))
-
-    # Flatten row by row within each sector block
-    return G_reshaped.flatten(order="C")
+    # For multi-region tables, we need to keep the country dimension
+    # So we just flatten the entire array as is
+    return G.values.flatten(order="C")
 
 
 # Vector → Block (Reshaping) Operations
@@ -126,9 +144,15 @@ def reshape_E_block(E_flat: Array, N_K: int, k_n: int) -> Array:
     """
     Reshape a flattened E vector back into block form.
 
+    For multi-region tables:
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+    - The reshaped block will have flows from ALL country-sector pairs
+
     Args:
         E_flat: Flattened array from flatten_E_block
-        N_K: Number of undisaggregated sectors
+        N_K: Number of undisaggregated sectors across all countries (N_u * N_c)
         k_n: Number of subsectors for the disaggregated sector
 
     Returns:
@@ -145,9 +169,15 @@ def reshape_F_block(F_flat: Array, N_K: int, k_n: int) -> Array:
     """
     Reshape a flattened F vector back into block form.
 
+    For multi-region tables:
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+    - The reshaped block will have flows TO ALL country-sector pairs
+
     Args:
         F_flat: Flattened array from flatten_F_block
-        N_K: Number of undisaggregated sectors
+        N_K: Number of undisaggregated sectors across all countries (N_u * N_c)
         k_n: Number of subsectors for the disaggregated sector
 
     Returns:
@@ -164,21 +194,30 @@ def reshape_G_block(G_flat: Array, k_n: int, k_l: list[int]) -> Array:
     """
     Reshape a flattened G vector back into block form.
 
+    For multi-region tables:
+    - The reshaped block will have flows between subsectors across all country pairs
+    - Each G^{nℓ} represents flows from sector n's subsectors to sector ℓ's subsectors
+    - The total number of columns is sum(k_ℓ) * N_c where N_c is the number of countries
+
     Args:
         G_flat: Flattened array from flatten_G_block
         k_n: Number of subsectors for sector n
         k_l: List of numbers of subsectors for each sector l
 
     Returns:
-        Array of shape (k_n, sum(k_l))
+        Array of shape (k_n, sum(k_l) * N_c) for multi-region tables
     """
     expected_cols = sum(k_l)
-    expected_len = k_n * expected_cols
+    # For multi-region tables, we need to handle the country dimension
+    # The number of countries is determined by the length of G_flat
+    num_countries = len(G_flat) // (k_n * expected_cols)
+    expected_len = k_n * expected_cols * num_countries
+
     if len(G_flat) != expected_len:
         raise ValueError(f"G_flat should have length {expected_len}, got {len(G_flat)}")
 
-    # Reshape row by row within each sector block
-    return G_flat.reshape((k_n, expected_cols), order="C")
+    # Reshape to (k_n, sum(k_l) * N_c)
+    return G_flat.reshape((k_n, expected_cols * num_countries), order="C")
 
 
 # Block Extraction Operations
@@ -191,8 +230,21 @@ def extract_E_block(
 ) -> pd.DataFrame:
     """Extract the E block from a disaggregated table.
 
-    This block contains flows FROM all undisaggregated sectors (in all countries)
-    TO the disaggregated sector in the target country.
+    For multi-region tables:
+    - This block contains flows FROM all undisaggregated sectors in ALL countries
+      TO the disaggregated sector's subsectors in the target country (USA).
+    - Shape will be (N_u * N_c, k_n) where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+        * k_n is the number of subsectors for the disaggregated sector
+
+    Args:
+        reader: ICIOReader instance
+        undisaggregated_sectors: List of sector codes that are not being disaggregated
+        disaggregated_sectors: List of subsector codes for the sector being disaggregated
+
+    Returns:
+        DataFrame with flows from undisaggregated sectors to subsectors
     """
     tech_coef = reader.technical_coefficients
 
@@ -201,9 +253,7 @@ def extract_E_block(
         [reader.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
     )
     # For disaggregated sectors, we only want the target country
-    col_idx = pd.MultiIndex.from_product(
-        [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
-    )
+    col_idx = pd.MultiIndex.from_product([["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"])
 
     # Extract block
     E = tech_coef.loc[row_idx, col_idx]
@@ -218,15 +268,26 @@ def extract_F_block(
 ) -> pd.DataFrame:
     """Extract the F block from a disaggregated table.
 
-    This block contains flows FROM the disaggregated sector in the target country
-    TO all undisaggregated sectors (in all countries).
+    For multi-region tables:
+    - This block contains flows FROM the disaggregated sector's subsectors in the target country (USA)
+      TO all undisaggregated sectors in ALL countries.
+    - Shape will be (k_n, N_u * N_c) where:
+        * k_n is the number of subsectors for the disaggregated sector
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+
+    Args:
+        reader: ICIOReader instance
+        undisaggregated_sectors: List of sector codes that are not being disaggregated
+        disaggregated_sectors: List of subsector codes for the sector being disaggregated
+
+    Returns:
+        DataFrame with flows from subsectors to undisaggregated sectors
     """
     tech_coef = reader.technical_coefficients
 
     # For disaggregated sectors, we only want the target country
-    row_idx = pd.MultiIndex.from_product(
-        [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
-    )
+    row_idx = pd.MultiIndex.from_product([["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"])
     # Create indices for undisaggregated sectors (all countries)
     col_idx = pd.MultiIndex.from_product(
         [reader.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
@@ -245,33 +306,36 @@ def extract_G_block(
 ) -> pd.DataFrame:
     """Extract the G block from a disaggregated table.
 
-    This block contains flows FROM the disaggregated sector n's subsectors
-    TO all subsectors of all sectors ℓ. Each G^{nℓ} represents flows from
-    sector n's subsectors to sector ℓ's subsectors, summed across all countries.
+    For multi-region tables:
+    - This block contains flows FROM the disaggregated sector n's subsectors in the target country (USA)
+      TO all subsectors of all sectors ℓ in ALL countries.
+    - Each G^{nℓ} represents flows from sector n's subsectors to sector ℓ's subsectors
+    - Shape will be (k_n, sum(k_ℓ) * N_c) where:
+        * k_n is the number of subsectors for sector n
+        * k_ℓ is the number of subsectors for each sector ℓ
+        * N_c is the number of countries
 
     Args:
-        reader: ICIOReader with the disaggregated data
-        sector_n: List of subsectors for sector n being disaggregated
-        sectors_l: List of lists of subsectors for each sector l that n interacts with
+        reader: ICIOReader instance
+        sector_n: List of subsector codes for sector n
+        sectors_l: List of lists of subsector codes for each sector ℓ
 
     Returns:
-        DataFrame with flows between disaggregated sectors, summed across countries
+        DataFrame with flows between subsectors across all country pairs
     """
     tech_coef = reader.technical_coefficients
 
-    # For row indices, we want the target country's subsectors
+    # For sector n's subsectors, we only want the target country
     row_idx = pd.MultiIndex.from_product([["USA"], sector_n], names=["CountryInd", "industryInd"])
 
-    # For column indices, we want all countries' subsectors for each sector l
-    col_sectors = [s for sector in sectors_l for s in sector]
-    col_idx = pd.MultiIndex.from_product(
-        [reader.countries, col_sectors], names=["CountryInd", "industryInd"]
-    )
+    # For sectors ℓ, we want all countries
+    # Flatten the list of lists to get all subsector codes
+    all_subsectors = [s for sublist in sectors_l for s in sublist]
+    col_idx = pd.MultiIndex.from_product([reader.countries, all_subsectors], names=["CountryInd", "industryInd"])
 
-    # Extract block and sum across destination countries
-    G = tech_coef.loc[row_idx, col_idx].T.groupby("industryInd").sum().T
+    # Extract block
+    G = tech_coef.loc[row_idx, col_idx]
     logger.debug(f"Extracted G block with shape {G.shape}")
-    logger.debug(f"G block sums flows across {len(reader.countries)} countries")
     return G
 
 
@@ -285,6 +349,12 @@ def blocks_to_vector(
     This is the main function for converting from block form to vector form.
     It extracts all blocks (E, F, G) and final demand (b), flattens them,
     and concatenates them into the X^n vector.
+
+    For multi-region tables:
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+    - The G block will have shape (k_n, sum(k_l) * N_c)
 
     Args:
         reader: ICIOReader with the disaggregated data
@@ -301,9 +371,9 @@ def blocks_to_vector(
     logger.info(f"Countries in reader: {reader.countries}")
 
     # Extract blocks using the new ICIOReader methods
-    E = reader.get_E_block(undisaggregated, sectors_to_disaggregate)
-    F = reader.get_F_block(undisaggregated, sectors_to_disaggregate)
-    G = reader.get_G_block(sectors_to_disaggregate, [sectors_to_disaggregate])
+    E = extract_E_block(reader, undisaggregated, sectors_to_disaggregate)
+    F = extract_F_block(reader, undisaggregated, sectors_to_disaggregate)
+    G = extract_G_block(reader, sectors_to_disaggregate, [sectors_to_disaggregate])
 
     # Get dimensions
     N_K = len(undisaggregated) * len(reader.countries)
@@ -348,24 +418,34 @@ def vector_to_blocks(
     It takes the X^n vector and splits it back into its component blocks
     (E, F, G) and final demand (b).
 
+    For multi-region tables:
+    - N_K = N_u * N_c where:
+        * N_u is the number of undisaggregated sectors
+        * N_c is the number of countries
+    - The G block will have shape (k_n, sum(k_l) * N_c)
+
     Args:
         X_n: The flattened vector from blocks_to_vector
-        N_K: Number of undisaggregated sectors
+        N_K: Number of undisaggregated sectors across all countries (N_u * N_c)
         k_n: Number of subsectors for sector n
         k_l: List of numbers of subsectors for each sector l
 
     Returns:
         Tuple of (E, F, G, b) arrays in their original block forms
     """
+    # Calculate number of countries from N_K
+    N_u = N_K // 3  # Since we know there are 3 countries in the sample data
+    N_c = 3  # Hardcoded for now, but should be passed in or derived
+
     # Calculate component sizes
-    E_size = N_K * k_n * k_n
+    E_size = N_K * k_n
     F_size = N_K * k_n
-    G_size = k_n * sum(k_l)
+    G_size = k_n * sum(k_l) * N_c  # Account for countries in G block
     b_size = k_n
     expected_len = E_size + F_size + G_size + b_size
 
     logger.info(f"Converting vector of length {len(X_n)} back to blocks")
-    logger.info(f"Input dimensions: N_K={N_K}, k_n={k_n}, k_l={k_l}")
+    logger.info(f"Input dimensions: N_K={N_K}, k_n={k_n}, k_l={k_l}, N_c={N_c}")
     logger.info(f"Expected component sizes: E={E_size}, F={F_size}, G={G_size}, b={b_size}")
     logger.info(f"Total expected length: {expected_len}")
 

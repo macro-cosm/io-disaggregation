@@ -198,9 +198,7 @@ def test_blocks_to_vector_and_back(sample_reader: ICIOReader):
     F_orig = extract_F_block(sample_reader, undisaggregated, sectors_to_disagg)
     G_orig = extract_G_block(sample_reader, sectors_to_disagg, [sectors_to_disagg])
     b_orig = sample_reader.final_demand.loc[
-        pd.MultiIndex.from_product(
-            [sample_reader.countries, sectors_to_disagg], names=["CountryInd", "industryInd"]
-        )
+        pd.MultiIndex.from_product([sample_reader.countries, sectors_to_disagg], names=["CountryInd", "industryInd"])
     ].values
 
     # Check that blocks match
@@ -225,14 +223,16 @@ def test_extract_blocks_shapes(sample_reader: ICIOReader):
     N_K = len(undisaggregated) * len(sample_reader.countries)  # 3 countries * 1 sector = 3
     k_n = len(sectors_to_disaggregate)  # 1 sector
     k_l = [k_n]  # Only one sector being disaggregated
-    total_cols = sum(k_l)  # Total number of subsectors across all sectors l
+    total_cols = sum(k_l) * len(
+        sample_reader.countries
+    )  # Total number of subsectors across all sectors l and countries
 
     assert E.shape == (N_K, k_n)  # (3, 1) - flows from undisaggregated sectors to subsectors
     assert F.shape == (k_n, N_K)  # (1, 3) - flows from subsectors to undisaggregated sectors
     assert G.shape == (
         k_n,
         total_cols,
-    )  # (1, 1) - flows between subsectors, summed across countries
+    )  # (1, 3) - flows between subsectors across all country pairs
 
 
 def test_extract_blocks_values(sample_reader: ICIOReader):
@@ -251,4 +251,6 @@ def test_extract_blocks_values(sample_reader: ICIOReader):
     # These values should match the known structure of sample_reader
     assert E.loc[("USA", "MFG"), ("USA", "AGR")] > 0
     assert F.loc[("USA", "AGR"), ("USA", "MFG")] > 0
-    assert G.loc[("USA", "AGR"), "AGR"] > 0  # G block is summed across countries
+    assert G.loc[("USA", "AGR"), ("USA", "AGR")] > 0  # Flow from USA AGR to USA AGR
+    assert G.loc[("USA", "AGR"), ("CHN", "AGR")] > 0  # Flow from USA AGR to CHN AGR
+    assert G.loc[("USA", "AGR"), ("ROW", "AGR")] > 0  # Flow from USA AGR to ROW AGR
