@@ -555,3 +555,68 @@ The project uses modern Python packaging tools and configurations:
 
 ---
 **Note**: This documentation will be updated as new features and improvements are added to the codebase.
+
+### Block Structure for Multi-Region Tables
+
+When working with multi-region Input-Output tables, the block structure requires special handling to maintain flows across all country pairs. Here's how each block is structured:
+
+#### E Block
+- Shape: (N_K × k_n) where:
+  * N_K = N_u * N_c (undisaggregated sectors × countries)
+  * k_n is the number of subsectors for sector n
+- Contains flows FROM all undisaggregated sectors in ALL countries TO the target country's subsectors
+- Example: For USA's A sector split into A01 and A03, includes flows from all other sectors in all countries to USA's A01 and A03
+
+#### F Block
+- Shape: (k_n × N_K) where:
+  * k_n is the number of subsectors for sector n
+  * N_K = N_u * N_c (undisaggregated sectors × countries)
+- Contains flows FROM the target country's subsectors TO all undisaggregated sectors in ALL countries
+- Example: For USA's A sector, includes flows from USA's A01 and A03 to all other sectors in all countries
+
+#### G Block
+- Shape: (k_n × sum(k_ℓ) * N_c) where:
+  * k_n is the number of subsectors for sector n
+  * k_ℓ are the numbers of subsectors for each sector ℓ
+  * N_c is the number of countries
+- Contains flows between subsectors across ALL country pairs
+- Each G^{nℓ} represents flows from sector n's subsectors to sector ℓ's subsectors
+- Does NOT sum across countries, preserving the full country-pair structure
+- Example: For USA's A sector (A01, A03), includes flows:
+  * USA A01 → USA A01, USA A03
+  * USA A01 → ROW A01, ROW A03
+  * USA A03 → USA A01, USA A03
+  * USA A03 → ROW A01, ROW A03
+
+### Vector Blocks Module
+
+The `vector_blocks` module provides functionality to transform between block matrices and vectors in disaggregation problems. This is crucial for the optimization process where we need to work with flattened vectors.
+
+#### Key Functions
+
+1. **Block → Vector (Flattening)**
+   - `flatten_E_block`: Flattens E block row by row
+   - `flatten_F_block`: Flattens F block column by column
+   - `flatten_G_block`: Flattens G block while preserving country-pair structure
+
+2. **Vector → Block (Reshaping)**
+   - `reshape_E_block`: Reshapes vector back to (N_K × k_n) form
+   - `reshape_F_block`: Reshapes vector back to (k_n × N_K) form
+   - `reshape_G_block`: Reshapes vector back to (k_n × sum(k_ℓ) * N_c) form
+
+3. **Block Extraction**
+   - `extract_E_block`: Extracts E block from technical coefficients
+   - `extract_F_block`: Extracts F block from technical coefficients
+   - `extract_G_block`: Extracts G block from technical coefficients
+
+4. **Vector Conversion**
+   - `blocks_to_vector`: Converts all blocks to a single vector X^n
+   - `vector_to_blocks`: Splits vector X^n back into component blocks
+
+#### Multi-Region Handling
+
+The module is designed to handle multi-region tables correctly by:
+1. Preserving flows across all country pairs
+2. Maintaining proper dimensionality in block operations
+3. Ensuring consistent ordering of countries and sectors
+4. Handling the increased complexity of country-pair relationships
