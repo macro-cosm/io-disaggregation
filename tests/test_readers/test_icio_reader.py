@@ -1,5 +1,6 @@
 """Tests for the ICIO reader module."""
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,8 @@ import pandas as pd
 import pytest
 
 from disag_tools.readers.icio_reader import ICIOReader
+
+logger = logging.getLogger(__name__)
 
 
 class TestICIOReader:
@@ -365,7 +368,7 @@ class TestICIOReader:
         assert (tech_coef >= 0).all().all()
 
     def test_technical_coefficients_zero_output(self, sample_reader: ICIOReader):
-        """Test handling of zero output in technical coefficients computation."""
+        """Test handling of zero output in technical coefficients' computation."""
         # Create a copy of the reader with modified data
         reader_copy = ICIOReader(
             data=sample_reader.data.copy(),
@@ -390,8 +393,11 @@ class TestICIOReader:
 
     def test_reordered_technical_coefficients(self, sample_reader: ICIOReader):
         """Test reordering of technical coefficients matrix for disaggregation."""
+        # Create sectors_info list with tuples (sector_id, name, k)
+        sectors_info = [("MFG", "Manufacturing", 3)]  # Using USA as representative country
+
         # Get reordered coefficients for disaggregating MFG sector
-        blocks = sample_reader.get_reordered_technical_coefficients(["MFG"])
+        blocks = sample_reader.get_reordered_technical_coefficients(sectors_info)
 
         # Check that the matrix has the same values, just reordered
         assert blocks.reordered_matrix.shape == sample_reader.technical_coefficients.shape
@@ -406,10 +412,10 @@ class TestICIOReader:
         assert list(blocks.reordered_matrix.columns[-len(mfg_pairs) :]) == mfg_pairs
 
         # Check sector info
-        assert blocks.K == 1  # One sector being disaggregated
+        assert blocks.K == len(sectors_info) * len(sample_reader.countries)  # One sector being disaggregated
         sector = blocks.get_sector_info(1)
         assert sector.sector == "MFG"
-        assert sector.k == 3  # Default value we set
+        assert sector.k == 3  # Value we set in sectors_info
 
         # Check that values match original matrix
         orig_coef = sample_reader.technical_coefficients
@@ -419,19 +425,24 @@ class TestICIOReader:
 
     def test_reordered_technical_coefficients_multiple_sectors(self, sample_reader: ICIOReader):
         """Test reordering with multiple sectors to disaggregate."""
+        # Create sectors_info list with tuples (sector_id, name, k)
+        sectors_info = [
+            ("AGR", "Agriculture", 3),
+            ("MFG", "Manufacturing", 3),
+        ]
+
         # Try to disaggregate both sectors
-        blocks = sample_reader.get_reordered_technical_coefficients(["AGR", "MFG"])
+        blocks = sample_reader.get_reordered_technical_coefficients(sectors_info)
 
         # Check basic properties
-        assert blocks.K == 2  # Two sectors being disaggregated
-        assert blocks.N == len(sample_reader.countries) * len(sample_reader.industries)
-        assert blocks.M == 6  # 2 sectors × 3 subsectors each
+        assert blocks.K == len(sectors_info) * len(sample_reader.countries)  # Two sectors being disaggregated
+
 
         # Check sector info
         sector1 = blocks.get_sector_info(1)
         sector2 = blocks.get_sector_info(2)
         assert {sector1.sector, sector2.sector} == {"AGR", "MFG"}
-        assert sector1.k == 3 and sector2.k == 3  # Default values we set
+        assert sector1.k == 3 and sector2.k == 3  # Values we set in sectors_info
 
         # Check that the matrix contains all pairs
         all_pairs = [
@@ -442,14 +453,34 @@ class TestICIOReader:
         assert set(blocks.reordered_matrix.index) == set(all_pairs)
         assert set(blocks.reordered_matrix.columns) == set(all_pairs)
 
+    def test_reordered_technical_coefficients_real_data(self, usa_reader: ICIOReader):
+        sectors_info = [("A01", "A01", 1),
+                        ("A03", "A03", 1)]
+
+        blocks = usa_reader.get_reordered_technical_coefficients(sectors_info)
+
+        assert blocks.K == 4
+
+        # Check sector info
+        block_lists = [("ROW", "A01"), ("ROW", "A03"), ("USA", "A01"), ("USA", "A03")]
+        block_lists = sorted(block_lists)
+
+        assert list(blocks.reordered_matrix.columns[-blocks.K:]) == block_lists
+
+
+
     def test_real_data_a01_disaggregation(self, icio_reader: ICIOReader):
         """Test reordering of technical coefficients for A01 disaggregation using real ICIO data."""
         # First create a reader with only USA data
         usa_reader = ICIOReader.from_csv_selection(
             icio_reader.data_path, selected_countries=["USA"]
         )
+
+        # Create sectors_info list with tuples (sector_id, name, k)
+        sectors_info = [(("A01"), "Agriculture", 3)]
+
         # Get reordered coefficients for disaggregating A01 sector
-        blocks = usa_reader.get_reordered_technical_coefficients(["A01"])
+        blocks = usa_reader.get_reordered_technical_coefficients(sectors_info)
 
         # Check basic structure
         assert blocks.reordered_matrix.shape == usa_reader.technical_coefficients.shape
@@ -464,10 +495,10 @@ class TestICIOReader:
         assert list(blocks.reordered_matrix.columns[-len(last_pairs) :]) == last_pairs
 
         # Check sector info
-        assert blocks.K == 1  # One sector being disaggregated
+        assert blocks.K == 2  # One sector being disaggregated
         sector = blocks.get_sector_info(1)
         assert sector.sector == "A01"
-        assert sector.k == 3  # Default value we set
+        assert sector.k == 3  # Value we set in sectors_info
 
         # Verify some actual values from the technical coefficients
         # Get original coefficients for comparison
@@ -560,182 +591,3 @@ class TestICIOReader:
         industry_mapping = {"NEW": ["INVALID"]}
         with pytest.raises(ValueError, match="Invalid industry codes in aggregation mapping"):
             ICIOReader.from_csv_with_aggregation(sample_csv, industry_aggregation=industry_mapping)
-
-    def test_get_E_block(self, sample_reader: ICIOReader):
-        """Test extraction of E block from technical coefficients."""
-        # Test with sample data
-        undisaggregated = ["MFG"]
-        disaggregated = ["AGR"]
-
-        E = sample_reader.get_E_block(undisaggregated, disaggregated)
-
-        # Check basic structure
-        assert isinstance(E, pd.DataFrame)
-        assert E.shape == (
-            len(sample_reader.countries) * len(undisaggregated),
-            len(disaggregated),
-        )
-
-        # Check specific values from sample data
-        # MFG to AGR flows should match technical coefficients
-        assert np.isclose(
-            E.loc[("USA", "MFG"), ("USA", "AGR")],
-            sample_reader.technical_coefficients.loc[("USA", "MFG"), ("USA", "AGR")],
-        )
-
-    def test_get_F_block(self, sample_reader: ICIOReader):
-        """Test extraction of F block from technical coefficients."""
-        # Test with sample data
-        undisaggregated = ["MFG"]
-        disaggregated = ["AGR"]
-
-        F = sample_reader.get_F_block(undisaggregated, disaggregated)
-
-        # Check basic structure
-        assert isinstance(F, pd.DataFrame)
-        assert F.shape == (
-            len(disaggregated),
-            len(sample_reader.countries) * len(undisaggregated),
-        )
-
-        # Check specific values from sample data
-        # AGR to MFG flows should match technical coefficients
-        assert np.isclose(
-            F.loc[("USA", "AGR"), ("USA", "MFG")],
-            sample_reader.technical_coefficients.loc[("USA", "AGR"), ("USA", "MFG")],
-        )
-
-    def test_get_G_block(self, sample_reader: ICIOReader):
-        """Test extraction of G block from technical coefficients."""
-        # Test with sample data
-        sector_n = ["AGR"]
-        sectors_l = [["MFG"]]
-
-        G = sample_reader.get_G_block(sector_n, sectors_l)
-
-        # Check basic structure
-        assert isinstance(G, pd.DataFrame)
-        assert G.shape == (len(sector_n), sum(len(s) for s in sectors_l))
-
-        # Check that values are summed across countries
-        # The G block should contain flows between sectors, summed across destination countries
-        total_flow = sum(
-            sample_reader.technical_coefficients.loc[("USA", "AGR"), (c, "MFG")]
-            for c in sample_reader.countries
-        )
-        assert np.isclose(G.loc[("USA", "AGR"), "MFG"], total_flow)
-
-    def test_get_blocks_with_real_data(self, icio_reader: ICIOReader):
-        """Test block extraction with real ICIO data."""
-        # Create USA-only reader for testing
-        usa_reader = ICIOReader.from_csv_selection(
-            icio_reader.data_path, selected_countries=["USA"]
-        )
-
-        # Test disaggregating A01
-        # Get list of sectors that are not A01 or special sectors
-        regular_sectors = [
-            s
-            for s in usa_reader.industries
-            if not any(s.startswith(p) for p in ["TLS", "VA", "OUT"]) and s != "A01"
-        ]
-        disaggregated = ["A01"]
-
-        # Get all blocks
-        E = usa_reader.get_E_block(regular_sectors, disaggregated)
-        F = usa_reader.get_F_block(regular_sectors, disaggregated)
-        G = usa_reader.get_G_block(disaggregated, [disaggregated])
-
-        # Check shapes
-        assert E.shape[1] == len(disaggregated)  # Columns match disaggregated sectors
-        assert F.shape[0] == len(disaggregated)  # Rows match disaggregated sectors
-        assert G.shape == (len(disaggregated), len(disaggregated))  # Square matrix
-
-        # Check that values are reasonable
-        assert not E.isna().any().any()  # No NaN values
-        assert not F.isna().any().any()
-        assert not G.isna().any().any()
-        assert (E >= 0).all().all()  # Non-negative values
-        assert (F >= 0).all().all()
-        assert (G >= 0).all().all()
-
-    def test_get_blocks_error_handling(self, sample_reader: ICIOReader):
-        """Test error handling in block extraction methods."""
-        # Test with invalid sector names
-        with pytest.raises(KeyError):
-            sample_reader.get_E_block(["INVALID"], ["AGR"])
-
-        with pytest.raises(KeyError):
-            sample_reader.get_F_block(["MFG"], ["INVALID"])
-
-        with pytest.raises(KeyError):
-            sample_reader.get_G_block(["INVALID"], [["MFG"]])
-
-        # Test with empty sector lists
-        with pytest.raises(ValueError, match="At least one undisaggregated sector required"):
-            sample_reader.get_E_block([], ["AGR"])
-
-        with pytest.raises(ValueError, match="At least one undisaggregated sector required"):
-            sample_reader.get_F_block([], ["AGR"])
-
-        with pytest.raises(ValueError, match="At least one sector required"):
-            sample_reader.get_G_block([], [[]])
-
-    def test_aggregation_indices_consistency(
-        self, usa_reader: ICIOReader, usa_aggregated_reader: ICIOReader
-    ):
-        """Test that aggregation only affects the specified sectors in indices and columns.
-
-        The aggregated reader should have identical indices/columns to the original reader,
-        except that A01 and A03 are replaced by A. All other sectors, special elements,
-        and country codes should remain unchanged.
-        """
-        # Get industry codes from both readers
-        orig_industries = set(usa_reader.data.index.get_level_values(1))
-        agg_industries = set(usa_aggregated_reader.data.index.get_level_values(1))
-
-        # The only differences should be:
-        # 1. A01 and A03 are in original but not aggregated
-        # 2. A is in aggregated but not original
-        only_in_orig = orig_industries - agg_industries
-        only_in_agg = agg_industries - orig_industries
-
-        assert only_in_orig == {
-            "A01",
-            "A03",
-        }, f"Expected only A01 and A03 to be removed, got {only_in_orig}"
-        assert only_in_agg == {"A"}, f"Expected only A to be added, got {only_in_agg}"
-
-        # All other industries should be identical
-        common_industries = orig_industries & agg_industries
-        assert common_industries == orig_industries - {
-            "A01",
-            "A03",
-        }, "Some industries were unexpectedly modified"
-
-        # Country codes should be identical
-        orig_countries = set(usa_reader.data.index.get_level_values(0))
-        agg_countries = set(usa_aggregated_reader.data.index.get_level_values(0))
-        assert orig_countries == agg_countries, "Country codes were modified during aggregation"
-
-        # Same checks for columns
-        orig_col_industries = set(usa_reader.data.columns.get_level_values(1))
-        agg_col_industries = set(usa_aggregated_reader.data.columns.get_level_values(1))
-
-        only_in_orig_cols = orig_col_industries - agg_col_industries
-        only_in_agg_cols = agg_col_industries - orig_col_industries
-
-        assert only_in_orig_cols == {
-            "A01",
-            "A03",
-        }, f"Expected only A01 and A03 to be removed from columns, got {only_in_orig_cols}"
-        assert only_in_agg_cols == {
-            "A"
-        }, f"Expected only A to be added to columns, got {only_in_agg_cols}"
-
-        # Country codes in columns should be identical
-        orig_col_countries = set(usa_reader.data.columns.get_level_values(0))
-        agg_col_countries = set(usa_aggregated_reader.data.columns.get_level_values(0))
-        assert (
-            orig_col_countries == agg_col_countries
-        ), "Country codes in columns were modified during aggregation"

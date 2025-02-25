@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from disag_tools.readers.blocks import DisaggregationBlocks
+from disag_tools.readers.blocks import DisaggregationBlocks, SectorId
 
 logger = logging.getLogger(__name__)
 
@@ -378,11 +378,6 @@ class ICIOReader:
         Returns:
             DataFrame with aggregated data
         """
-        logger = logging.getLogger(__name__)
-        logger.debug("Starting data aggregation")
-        logger.debug(f"Original data shape: {data.shape}")
-        logger.debug(f"Original index levels: {data.index.levels}")
-        logger.debug(f"Original columns levels: {data.columns.levels}")
 
         if country_mapping is None and industry_mapping is None:
             return data
@@ -739,16 +734,14 @@ class ICIOReader:
         return coefficients
 
     def get_reordered_technical_coefficients(
-        self, sectors_to_disaggregate: list[str]
+        self,
+        sectors_info: list[tuple[str, str, int]],
     ) -> DisaggregationBlocks:
         """
-        Get the technical coefficients matrix reordered for disaggregation.
+        Get technical coefficients matrix reordered into block structure.
 
-        This method reorders the technical coefficients matrix so that sectors to be
-        disaggregated are moved to the bottom-right blocks. The resulting matrix has
-        the following block structure:
-
-        [A_0    B^1  ... B^K]
+        The matrix is reordered to have the structure:
+        [A_0    B^1  ... B^K ]
         [C^1    D^11 ... D^1K]
         [...    ...  ... ...]
         [C^K    D^K1 ... D^KK]
@@ -760,7 +753,10 @@ class ICIOReader:
         - D^ij are the blocks between disaggregated sectors
 
         Args:
-            sectors_to_disaggregate: List of sector codes to be disaggregated
+            sectors_info: List of tuples (sector_id, name, k) where:
+                - sector_code is the sector code to split into subsectors
+                - name is a human-readable name
+                - k is the number of subsectors to split into
 
         Returns:
             DisaggregationBlocks instance containing the reordered matrix and sector info
@@ -770,146 +766,24 @@ class ICIOReader:
 
         # Create list of (sector_id, name, k) tuples for DisaggregationBlocks
         # Each sector_id is a tuple of (country, sector) pairs for that sector
-        sectors_info = []
-        for sector in sectors_to_disaggregate:
+        blocks_info = []
+        for sector_code, name, k in sectors_info:
             # Find all pairs in the index that match this sector code
             matching_pairs = sorted(
-                [idx for idx in coefficients.index if isinstance(idx, tuple) and idx[1] == sector]
+                [
+                    idx
+                    for idx in coefficients.index
+                    if isinstance(idx, tuple) and idx[1] == sector_code
+                ]
             )
             # Create a single entry for this sector, including all country-sector pairs
             if matching_pairs:
                 # Use the first pair's country as the representative
                 first_pair = matching_pairs[0]
-                sectors_info.append((first_pair, f"Sector {first_pair[1]}", 3))
+                blocks_info.append((first_pair, name, k))
 
         # Create DisaggregationBlocks instance
-        return DisaggregationBlocks.from_technical_coefficients(coefficients, sectors_info)
-
-    def get_E_block(
-        self, undisaggregated_sectors: list[str], disaggregated_sectors: list[str]
-    ) -> pd.DataFrame:
-        """Extract the E block from technical coefficients.
-
-        This block contains flows FROM all undisaggregated sectors (in all countries)
-        TO the disaggregated sector in the target country.
-
-        The shape of the E block is ((N-K) × k_n) where:
-        - N-K is the number of undisaggregated sectors across all countries
-        - k_n is the number of subsectors for sector n
-
-        Args:
-            undisaggregated_sectors: List of sector codes that remain undisaggregated
-            disaggregated_sectors: List of sector codes being disaggregated
-
-        Returns:
-            DataFrame with flows from undisaggregated to disaggregated sectors
-
-        Raises:
-            ValueError: If no sectors are provided
-            KeyError: If any sector code is not found in the data
-        """
-        if not undisaggregated_sectors:
-            raise ValueError("At least one undisaggregated sector required")
-        if not disaggregated_sectors:
-            raise ValueError("At least one disaggregated sector required")
-
-        tech_coef = self.technical_coefficients
-
-        # Create indices for undisaggregated sectors (all countries)
-        row_idx = pd.MultiIndex.from_product(
-            [self.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-        # For disaggregated sectors, we only want the target country
-        col_idx = pd.MultiIndex.from_product(
-            [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-
-        # Extract block
-        E = tech_coef.loc[row_idx, col_idx]
-        logger.debug(f"Extracted E block with shape {E.shape}")
-        return E
-
-    def get_F_block(
-        self, undisaggregated_sectors: list[str], disaggregated_sectors: list[str]
-    ) -> pd.DataFrame:
-        """Extract the F block from technical coefficients.
-
-        This block contains flows FROM the disaggregated sector in the target country
-        TO all undisaggregated sectors (in all countries).
-
-        Args:
-            undisaggregated_sectors: List of sector codes that remain undisaggregated
-            disaggregated_sectors: List of sector codes being disaggregated
-
-        Returns:
-            DataFrame with flows from disaggregated to undisaggregated sectors
-
-        Raises:
-            ValueError: If no sectors are provided
-            KeyError: If any sector code is not found in the data
-        """
-        if not undisaggregated_sectors:
-            raise ValueError("At least one undisaggregated sector required")
-        if not disaggregated_sectors:
-            raise ValueError("At least one disaggregated sector required")
-
-        tech_coef = self.technical_coefficients
-
-        # For disaggregated sectors, we only want the target country
-        row_idx = pd.MultiIndex.from_product(
-            [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-        # Create indices for undisaggregated sectors (all countries)
-        col_idx = pd.MultiIndex.from_product(
-            [self.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-
-        # Extract block
-        F = tech_coef.loc[row_idx, col_idx]
-        logger.debug(f"Extracted F block with shape {F.shape}")
-        return F
-
-    def get_G_block(self, sector_n: list[str], sectors_l: list[list[str]]) -> pd.DataFrame:
-        """Extract the G block from technical coefficients.
-
-        This block contains flows FROM the disaggregated sector n's subsectors
-        TO all subsectors of all sectors ℓ. Each G^{nℓ} represents flows from
-        sector n's subsectors to sector ℓ's subsectors, summed across all countries.
-
-        Args:
-            sector_n: List of subsectors for sector n being disaggregated
-            sectors_l: List of lists of subsectors for each sector l that n interacts with
-
-        Returns:
-            DataFrame with flows between disaggregated sectors, summed across countries
-
-        Raises:
-            ValueError: If no sectors are provided
-            KeyError: If any sector code is not found in the data
-        """
-        if not sector_n:
-            raise ValueError("At least one sector required for sector_n")
-        if not sectors_l or not any(sectors_l):
-            raise ValueError("At least one sector required for sectors_l")
-
-        tech_coef = self.technical_coefficients
-
-        # For row indices, we want the target country's subsectors
-        row_idx = pd.MultiIndex.from_product(
-            [["USA"], sector_n], names=["CountryInd", "industryInd"]
-        )
-
-        # For column indices, we want all countries' subsectors for each sector l
-        col_sectors = [s for sector in sectors_l for s in sector]
-        col_idx = pd.MultiIndex.from_product(
-            [self.countries, col_sectors], names=["CountryInd", "industryInd"]
-        )
-
-        # Extract block and sum across destination countries
-        G = tech_coef.loc[row_idx, col_idx].T.groupby("industryInd").sum().T
-        logger.debug(f"Extracted G block with shape {G.shape}")
-        logger.debug(f"G block sums flows across {len(self.countries)} countries")
-        return G
+        return DisaggregationBlocks.from_technical_coefficients(coefficients, blocks_info)
 
     @staticmethod
     def load_industry_list() -> list[str]:
