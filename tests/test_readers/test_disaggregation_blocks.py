@@ -509,3 +509,16 @@ def test_gn_vector(usa_reader_blocks):
     assert (
         gn.shape[0] == 4 * usa_reader_blocks.m
     ), f"Expected shape ({4 * usa_reader_blocks.m}), got {gn.shape}"
+
+
+def test_bn_vector(usa_reader_blocks):
+    bn = usa_reader_blocks.get_bn_vector(1)
+    # should be size 2
+    assert bn.shape[0] == 2, f"Expected shape (2), got {bn.shape}"
+
+
+def test_xn_vector(usa_reader_blocks):
+    # theoretical length is 2( 2(N-K)+1+4)
+    xn = usa_reader_blocks.get_xn_vector(1)
+    th_size = 2 * (2 * (usa_reader_blocks.N - usa_reader_blocks.K) + 1 + 4)
+    assert xn.shape[0] == th_size, f"Expected shape ({th_size}), got {xn.shape}"

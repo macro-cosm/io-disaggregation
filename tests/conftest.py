@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from disag_tools.readers import ICIOReader
+from disag_tools.readers.disaggregation_blocks import DisaggregationBlocks, DisaggregatedBlocks
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
@@ -176,3 +177,10 @@ def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
     assert "ROW" in countries_in_index, "ROW should be present in index"
     assert "ROW" in countries_in_cols, "ROW should be present in columns"
     return reader
+
+
+@pytest.fixture(scope="session")
+def usa_reader_blocks(usa_reader):
+    return DisaggregatedBlocks.from_technical_coefficients(
+        usa_reader, sector_mapping={"A": ["A01", "A03"]}
+    )

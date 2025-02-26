@@ -70,6 +70,126 @@ class DisaggregationBlocks:
     non_disaggregated_sector_names: list[str | tuple[str, str]]
     reordered_matrix: pd.DataFrame
 
+    @classmethod
+    def from_technical_coefficients(
+        cls,
+        tech_coef: pd.DataFrame,
+        sectors_info: list[tuple[SectorId, str, int]],
+    ) -> "DisaggregationBlocks":
+        """Create DisaggregationBlocks from a technical coefficients matrix.
+
+        Args:
+            tech_coef: Technical coefficients matrix
+            sectors_info: List of tuples (sector_id, name, k) where:
+                - sector_id is a sector identifier (str for single region, tuple for multi)
+                - name is a human-readable name
+                - k is the number of subsectors to split into
+
+        Returns:
+            DisaggregationBlocks instance with reordered matrix and sector info
+        """
+        # Convert sectors_info to list of SectorInfo objects with 1-based indices
+        sectors = [
+            SectorInfo(index=i + 1, sector_id=s_id, name=name, k=k)
+            for i, (s_id, name, k) in enumerate(sectors_info)
+        ]
+
+        if isinstance(sectors_info[0][0], tuple):
+            k_dict = {s.sector_id[1]: s.k for s in sectors}
+            name_dict = {s.sector_id[1]: s.name for s in sectors}
+        else:
+            k_dict = {s.sector_id: s.k for s in sectors}
+            name_dict = {s.sector_id: s.name for s in sectors}
+
+        sector_ids = [s.sector_id for s in sectors]
+
+        # Check if we're dealing with a multi-region table
+        is_multi_region = isinstance(tech_coef.index[0], tuple)
+        logger.debug(f"Processing {'multi-region' if is_multi_region else 'single-region'} table")
+
+        if is_multi_region:
+            # For multi-region tables, we need to handle country-sector pairs
+            # First get all sectors that aren't being disaggregated
+            sector_codes = {s.sector for s in sectors}
+            special_rows = ["OUT", "OUTPUT", "VA", "TLS"]
+
+            # Split into undisaggregated and disaggregated
+            undisaggregated = []
+            for idx in tech_coef.index:
+                if not isinstance(idx, tuple):
+                    continue
+                country, sector = idx
+                # Skip special rows and columns
+                if country in special_rows or sector in special_rows:
+                    continue
+                if sector not in sector_codes:
+                    undisaggregated.append(idx)
+
+            # Sort undisaggregated sectors by country, then sector
+            def sort_key(x):
+                country, sector = x
+                return (country, sector)
+
+            undisaggregated.sort(key=sort_key)
+
+            # For disaggregated sectors, we need to find all country-sector pairs
+            # that match each sector code, in the order they appear in sectors
+            disaggregated = []
+            seen_pairs = set()
+
+            # Add sectors in the order they appear in sectors list
+            for sector in sectors:
+                # Find all pairs that match this sector's code
+                matching_pairs = [
+                    idx
+                    for idx in tech_coef.index
+                    if isinstance(idx, tuple)
+                    and idx[0] not in special_rows
+                    and idx[1] == sector.sector
+                ]
+                # Add the sector's own pair first
+                if sector.sector_id not in seen_pairs and sector.sector_id in matching_pairs:
+                    disaggregated.append(sector.sector_id)
+                    seen_pairs.add(sector.sector_id)
+                # Then add any remaining pairs for this sector
+                for pair in sorted(matching_pairs):
+                    if pair not in seen_pairs:
+                        disaggregated.append(pair)
+                        seen_pairs.add(pair)
+
+        else:
+            # For single-region tables, index is just sector codes
+            special_rows = ["OUT", "OUTPUT", "VA", "TLS"]
+            undisaggregated = sorted(
+                idx for idx in tech_coef.index if idx not in sector_ids and idx not in special_rows
+            )
+            disaggregated = [s.sector_id for s in sectors]
+
+        disaggregated = sorted(disaggregated)
+        # Create new order and reindex
+        new_order = undisaggregated + disaggregated
+        logger.debug(f"Final order: {new_order}")
+
+        if isinstance(sectors_info[0][0], tuple):
+            sectors = [
+                SectorInfo(index=i + 1, sector_id=s_id, name=name_dict[s_id[1]], k=k_dict[s_id[1]])
+                for i, s_id in enumerate(disaggregated)
+            ]
+        else:
+            sectors = [
+                SectorInfo(index=i + 1, sector_id=s_id, name=name_dict[s_id], k=k_dict[s_id])
+                for i, s_id in enumerate(disaggregated)
+            ]
+
+        # Filter out special rows/columns from tech_coef before reindexing
+        filtered_tech_coef = tech_coef.loc[new_order, new_order]
+        return cls(
+            sectors=sectors,
+            reordered_matrix=filtered_tech_coef,
+            disaggregated_sector_names=disaggregated,
+            non_disaggregated_sector_names=undisaggregated,
+        )
+
     @property
     def is_multi_region(self) -> bool:
         """Whether this is a multi-region (e.g., ICIO) disaggregation."""
@@ -207,126 +327,6 @@ class DisaggregationBlocks:
             raise ValueError(f"Sector index {n} out of range [1, {self.K}]")
         return self.sectors[n - 1]
 
-    @classmethod
-    def from_technical_coefficients(
-        cls,
-        tech_coef: pd.DataFrame,
-        sectors_info: list[tuple[SectorId, str, int]],
-    ) -> "DisaggregationBlocks":
-        """Create DisaggregationBlocks from a technical coefficients matrix.
-
-        Args:
-            tech_coef: Technical coefficients matrix
-            sectors_info: List of tuples (sector_id, name, k) where:
-                - sector_id is a sector identifier (str for single region, tuple for multi)
-                - name is a human-readable name
-                - k is the number of subsectors to split into
-
-        Returns:
-            DisaggregationBlocks instance with reordered matrix and sector info
-        """
-        # Convert sectors_info to list of SectorInfo objects with 1-based indices
-        sectors = [
-            SectorInfo(index=i + 1, sector_id=s_id, name=name, k=k)
-            for i, (s_id, name, k) in enumerate(sectors_info)
-        ]
-
-        if isinstance(sectors_info[0][0], tuple):
-            k_dict = {s.sector_id[1]: s.k for s in sectors}
-            name_dict = {s.sector_id[1]: s.name for s in sectors}
-        else:
-            k_dict = {s.sector_id: s.k for s in sectors}
-            name_dict = {s.sector_id: s.name for s in sectors}
-
-        sector_ids = [s.sector_id for s in sectors]
-
-        # Check if we're dealing with a multi-region table
-        is_multi_region = isinstance(tech_coef.index[0], tuple)
-        logger.debug(f"Processing {'multi-region' if is_multi_region else 'single-region'} table")
-
-        if is_multi_region:
-            # For multi-region tables, we need to handle country-sector pairs
-            # First get all sectors that aren't being disaggregated
-            sector_codes = {s.sector for s in sectors}
-            special_rows = ["OUT", "OUTPUT", "VA", "TLS"]
-
-            # Split into undisaggregated and disaggregated
-            undisaggregated = []
-            for idx in tech_coef.index:
-                if not isinstance(idx, tuple):
-                    continue
-                country, sector = idx
-                # Skip special rows and columns
-                if country in special_rows or sector in special_rows:
-                    continue
-                if sector not in sector_codes:
-                    undisaggregated.append(idx)
-
-            # Sort undisaggregated sectors by country, then sector
-            def sort_key(x):
-                country, sector = x
-                return (country, sector)
-
-            undisaggregated.sort(key=sort_key)
-
-            # For disaggregated sectors, we need to find all country-sector pairs
-            # that match each sector code, in the order they appear in sectors
-            disaggregated = []
-            seen_pairs = set()
-
-            # Add sectors in the order they appear in sectors list
-            for sector in sectors:
-                # Find all pairs that match this sector's code
-                matching_pairs = [
-                    idx
-                    for idx in tech_coef.index
-                    if isinstance(idx, tuple)
-                    and idx[0] not in special_rows
-                    and idx[1] == sector.sector
-                ]
-                # Add the sector's own pair first
-                if sector.sector_id not in seen_pairs and sector.sector_id in matching_pairs:
-                    disaggregated.append(sector.sector_id)
-                    seen_pairs.add(sector.sector_id)
-                # Then add any remaining pairs for this sector
-                for pair in sorted(matching_pairs):
-                    if pair not in seen_pairs:
-                        disaggregated.append(pair)
-                        seen_pairs.add(pair)
-
-        else:
-            # For single-region tables, index is just sector codes
-            special_rows = ["OUT", "OUTPUT", "VA", "TLS"]
-            undisaggregated = sorted(
-                idx for idx in tech_coef.index if idx not in sector_ids and idx not in special_rows
-            )
-            disaggregated = [s.sector_id for s in sectors]
-
-        disaggregated = sorted(disaggregated)
-        # Create new order and reindex
-        new_order = undisaggregated + disaggregated
-        logger.debug(f"Final order: {new_order}")
-
-        if isinstance(sectors_info[0][0], tuple):
-            sectors = [
-                SectorInfo(index=i + 1, sector_id=s_id, name=name_dict[s_id[1]], k=k_dict[s_id[1]])
-                for i, s_id in enumerate(disaggregated)
-            ]
-        else:
-            sectors = [
-                SectorInfo(index=i + 1, sector_id=s_id, name=name_dict[s_id], k=k_dict[s_id])
-                for i, s_id in enumerate(disaggregated)
-            ]
-
-        # Filter out special rows/columns from tech_coef before reindexing
-        filtered_tech_coef = tech_coef.loc[new_order, new_order]
-        return cls(
-            sectors=sectors,
-            reordered_matrix=filtered_tech_coef,
-            disaggregated_sector_names=disaggregated,
-            non_disaggregated_sector_names=undisaggregated,
-        )
-
 
 class DisaggregatedBlocks(DisaggregationBlocks):
     """Class to handle the block structure of a disaggregated problem.
@@ -359,6 +359,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         sector_mapping: dict[tuple[str, str], list[tuple[str, str]]],
         aggregated_sectors_list: list[tuple[str, str]],
         m: int,
+        final_demand: pd.Series,
     ):
         super().__init__(
             sectors=sectors,
@@ -369,6 +370,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         self.sector_mapping = sector_mapping
         self.aggregated_sectors_list = aggregated_sectors_list
         self.m = m
+        self.final_demand = final_demand
 
     @classmethod
     def from_technical_coefficients(
@@ -411,6 +413,22 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         # Create ordered list of aggregated sectors
         aggregated_sectors_list = sorted(list(full_mapping.keys()))
 
+        # Get final demand and output for disaggregated sectors
+        final_demand = reader.final_demand.loc[blocks.disaggregated_sector_names]
+        output = reader.output_from_out.loc[blocks.disaggregated_sector_names]
+
+        # Create a Series with the same index as final_demand but containing total output of aggregated sectors
+        total_output = pd.Series(index=final_demand.index, dtype=float)
+        for agg_sector, disagg_sectors in full_mapping.items():
+            # Get total output for this aggregated sector
+            sector_output = output.loc[disagg_sectors].sum()
+            # Assign this total to each disaggregated sector in the group
+            for sector in disagg_sectors:
+                total_output.loc[sector] = sector_output
+
+        # Rescale final demand by total output
+        final_demand = final_demand / total_output
+
         # Return DisaggregatedBlocks instance
         return cls(
             sectors=blocks.sectors,
@@ -420,6 +438,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
             sector_mapping=full_mapping,
             aggregated_sectors_list=aggregated_sectors_list,
             m=len(aggregated_sectors_list),
+            final_demand=final_demand,
         )
 
     def get_e_vector(self, n: int) -> np.ndarray:
@@ -491,3 +510,26 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         gnls = [self.get_gnl_vector(n, l) for l in range(1, self.m + 1)]
 
         return np.concatenate(gnls)
+
+    def get_bn_vector(self, n: int) -> np.ndarray:
+        # final demand for the disaggregated sectors
+        aggregated_sector = self.aggregated_sectors_list[n - 1]
+        # get the disaggregated sectors
+        disaggregated_sectors = self.sector_mapping[aggregated_sector]
+
+        indices = [
+            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors
+        ]
+        disaggregated_sectors = [self.disaggregated_sector_names[i] for i in indices]
+
+        bn = self.final_demand.loc[disaggregated_sectors].values
+        return bn
+
+    def get_xn_vector(self, n: int) -> np.ndarray:
+        # get E, F, G, bn
+        E = self.get_e_vector(n)
+        F = self.get_f_vector(n)
+        G = self.get_gn_vector(n)
+        bn = self.get_bn_vector(n)
+
+        return np.concatenate([E, F, G, bn])
