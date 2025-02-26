@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from disag_tools.readers.disaggregation_blocks import DisaggregationBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
 logger = logging.getLogger(__name__)
@@ -397,7 +398,9 @@ class TestICIOReader:
         sectors_info = [("MFG", "Manufacturing", 3)]  # Using USA as representative country
 
         # Get reordered coefficients for disaggregating MFG sector
-        blocks = sample_reader.get_reordered_technical_coefficients(sectors_info)
+        blocks = DisaggregationBlocks.from_technical_coefficients(
+            tech_coef=sample_reader.technical_coefficients, sectors_info=sectors_info
+        )
 
         # Check that the matrix has the same values, just reordered
         assert blocks.reordered_matrix.shape == sample_reader.technical_coefficients.shape
@@ -412,7 +415,9 @@ class TestICIOReader:
         assert list(blocks.reordered_matrix.columns[-len(mfg_pairs) :]) == mfg_pairs
 
         # Check sector info
-        assert blocks.K == len(sectors_info) * len(sample_reader.countries)  # One sector being disaggregated
+        assert blocks.K == len(sectors_info) * len(
+            sample_reader.countries
+        )  # One sector being disaggregated
         sector = blocks.get_sector_info(1)
         assert sector.sector == "MFG"
         assert sector.k == 3  # Value we set in sectors_info
@@ -432,11 +437,14 @@ class TestICIOReader:
         ]
 
         # Try to disaggregate both sectors
-        blocks = sample_reader.get_reordered_technical_coefficients(sectors_info)
 
+        blocks = DisaggregationBlocks.from_technical_coefficients(
+            sample_reader.technical_coefficients, sectors_info
+        )
         # Check basic properties
-        assert blocks.K == len(sectors_info) * len(sample_reader.countries)  # Two sectors being disaggregated
-
+        assert blocks.K == len(sectors_info) * len(
+            sample_reader.countries
+        )  # Two sectors being disaggregated
 
         # Check sector info
         sector1 = blocks.get_sector_info(1)
@@ -454,10 +462,11 @@ class TestICIOReader:
         assert set(blocks.reordered_matrix.columns) == set(all_pairs)
 
     def test_reordered_technical_coefficients_real_data(self, usa_reader: ICIOReader):
-        sectors_info = [("A01", "A01", 1),
-                        ("A03", "A03", 1)]
+        sectors_info = [("A01", "A01", 1), ("A03", "A03", 1)]
 
-        blocks = usa_reader.get_reordered_technical_coefficients(sectors_info)
+        blocks = DisaggregationBlocks.from_technical_coefficients(
+            tech_coef=usa_reader.technical_coefficients, sectors_info=sectors_info
+        )
 
         assert blocks.K == 4
 
@@ -465,9 +474,7 @@ class TestICIOReader:
         block_lists = [("ROW", "A01"), ("ROW", "A03"), ("USA", "A01"), ("USA", "A03")]
         block_lists = sorted(block_lists)
 
-        assert list(blocks.reordered_matrix.columns[-blocks.K:]) == block_lists
-
-
+        assert list(blocks.reordered_matrix.columns[-blocks.K :]) == block_lists
 
     def test_real_data_a01_disaggregation(self, icio_reader: ICIOReader):
         """Test reordering of technical coefficients for A01 disaggregation using real ICIO data."""
@@ -480,7 +487,9 @@ class TestICIOReader:
         sectors_info = [(("A01"), "Agriculture", 3)]
 
         # Get reordered coefficients for disaggregating A01 sector
-        blocks = usa_reader.get_reordered_technical_coefficients(sectors_info)
+        blocks = DisaggregationBlocks.from_technical_coefficients(
+            tech_coef=usa_reader.technical_coefficients, sectors_info=sectors_info
+        )
 
         # Check basic structure
         assert blocks.reordered_matrix.shape == usa_reader.technical_coefficients.shape

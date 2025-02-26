@@ -8,13 +8,10 @@ disaggregation.
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 import yaml
-
-from disag_tools.readers.blocks import DisaggregationBlocks, SectorId
 
 logger = logging.getLogger(__name__)
 
@@ -732,58 +729,6 @@ class ICIOReader:
                 coefficients[col] = 0.0
 
         return coefficients
-
-    def get_reordered_technical_coefficients(
-        self,
-        sectors_info: list[tuple[str, str, int]],
-    ) -> DisaggregationBlocks:
-        """
-        Get technical coefficients matrix reordered into block structure.
-
-        The matrix is reordered to have the structure:
-        [A_0    B^1  ... B^K ]
-        [C^1    D^11 ... D^1K]
-        [...    ...  ... ...]
-        [C^K    D^K1 ... D^KK]
-
-        where:
-        - A_0 is the block for undisaggregated sectors
-        - B^i are the blocks from undisaggregated to disaggregated sectors
-        - C^i are the blocks from disaggregated to undisaggregated sectors
-        - D^ij are the blocks between disaggregated sectors
-
-        Args:
-            sectors_info: List of tuples (sector_id, name, k) where:
-                - sector_code is the sector code to split into subsectors
-                - name is a human-readable name
-                - k is the number of subsectors to split into
-
-        Returns:
-            DisaggregationBlocks instance containing the reordered matrix and sector info
-        """
-        # Get technical coefficients
-        coefficients = self.technical_coefficients
-
-        # Create list of (sector_id, name, k) tuples for DisaggregationBlocks
-        # Each sector_id is a tuple of (country, sector) pairs for that sector
-        blocks_info = []
-        for sector_code, name, k in sectors_info:
-            # Find all pairs in the index that match this sector code
-            matching_pairs = sorted(
-                [
-                    idx
-                    for idx in coefficients.index
-                    if isinstance(idx, tuple) and idx[1] == sector_code
-                ]
-            )
-            # Create a single entry for this sector, including all country-sector pairs
-            if matching_pairs:
-                # Use the first pair's country as the representative
-                first_pair = matching_pairs[0]
-                blocks_info.append((first_pair, name, k))
-
-        # Create DisaggregationBlocks instance
-        return DisaggregationBlocks.from_technical_coefficients(coefficients, blocks_info)
 
     @staticmethod
     def load_industry_list() -> list[str]:
