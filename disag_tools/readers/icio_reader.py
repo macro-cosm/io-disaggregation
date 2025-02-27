@@ -570,40 +570,6 @@ class ICIOReader:
         return total_output
 
     @property
-    def final_demand_table(self) -> pd.DataFrame:
-        """
-        Get the final demand table (all columns with final demand prefixes).
-
-        Returns:
-            pd.DataFrame: Final demand table with country-industry pairs as index
-                and final demand categories as columns
-        """
-        # Create valid pairs for regular countries
-        valid_pairs = pd.MultiIndex.from_product(
-            [self.countries, self.industries], names=["CountryInd", "industryInd"]
-        )
-
-        # Get final demand columns (those with special prefixes)
-        final_demand_cols = [
-            col
-            for col in self.data.columns
-            if any(col[0].startswith(prefix) for prefix in self.FINAL_DEMAND_PREFIXES)
-        ]
-
-        # Return the final demand table
-        return self.data.loc[valid_pairs, final_demand_cols]
-
-    @property
-    def final_demand_totals(self) -> pd.Series:
-        """
-        Get total final demand values (sum of all final demand columns).
-
-        Returns:
-            pd.Series: Total final demand values indexed by country-industry pairs
-        """
-        return self.final_demand_table.sum(axis=1)
-
-    @property
     def intermediate_demand_table(self) -> pd.DataFrame:
         """
         Get the intermediate demand table (only country-industry flows).
@@ -650,6 +616,44 @@ class ICIOReader:
             raise ValueError("Intermediate demand table contains infinite values")
 
         return table
+
+    @property
+    def final_demand_table(self) -> pd.DataFrame:
+        """
+        Get total final demand for each sector.
+
+        This method sums all final demand components (HFCE, NPISH, GGFC, etc.)
+        for each sector, excluding special sectors like VA and TLS.
+
+        Returns:
+            pd.Series: Total final demand for each sector, indexed by (country, sector) pairs
+        """
+        logger.debug("Calculating total final demand")
+
+        # Create valid pairs from regular sectors only
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
+        logger.debug(f"Created {len(valid_pairs)} valid pairs for final demand")
+
+        # Get final demand columns
+        fd_cols = [
+            col
+            for col in self.data.columns.get_level_values(1).unique()
+            if any(col.startswith(p) for p in self.FINAL_DEMAND_PREFIXES)
+        ]
+        logger.debug(f"Found final demand columns: {fd_cols}")
+
+        # Create column index for final demand
+        fd_idx = pd.MultiIndex.from_product(
+            [self.countries, fd_cols], names=["CountryInd", "industryInd"]
+        )
+        logger.debug(f"Created final demand column index with {len(fd_idx)} pairs")
+
+        # Sum across all final demand columns
+        final = self.data.loc[valid_pairs, fd_idx]
+
+        return final
 
     @property
     def final_demand(self) -> pd.Series:
