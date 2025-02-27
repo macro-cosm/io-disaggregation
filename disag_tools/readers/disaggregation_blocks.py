@@ -7,6 +7,7 @@ from typing import NamedTuple, TypeAlias
 import numpy as np
 import pandas as pd
 
+from disag_tools.disaggregation.constraints import generate_M1_block, generate_M2_block
 from disag_tools.readers.icio_reader import ICIOReader
 
 # Type alias for sector identifiers - can be just str for single-region tables
@@ -139,6 +140,7 @@ class DisaggregationBlocks:
 
             # Add sectors in the order they appear in sectors list
             for sector in sectors:
+
                 # Find all pairs that match this sector's code
                 matching_pairs = [
                     idx
@@ -169,6 +171,10 @@ class DisaggregationBlocks:
         # Create new order and reindex
         new_order = undisaggregated + disaggregated
         logger.debug(f"Final order: {new_order}")
+
+        if isinstance(disaggregated[0], tuple):
+            name_dict.update({s: name_dict[s[1]] for s in disaggregated})
+            k_dict.update({s: k_dict[s[1]] for s in disaggregated})
 
         if isinstance(sectors_info[0][0], tuple):
             sectors = [
@@ -238,7 +244,6 @@ class DisaggregationBlocks:
         if not 1 <= n <= self.K:
             raise ValueError(f"Sector index {n} out of range [1, {self.K}]")
 
-        N_K = self.N - self.K
         # Find the column index for sector n
         sector_id = self.sectors[n - 1].sector_id
         try:
@@ -247,21 +252,10 @@ class DisaggregationBlocks:
             logger.error(f"Sector {sector_id} not found in matrix columns")
             raise
 
-        logger.debug(f"Getting B block for sector {n}")
-        logger.debug(f"Matrix shape: {self.reordered_matrix.shape}")
-        logger.debug(f"N_K={N_K}, col_idx={col_idx}")
-        logger.debug(f"Matrix columns: {self.reordered_matrix.columns.tolist()}")
-        logger.debug(f"Sector being processed: {self.sectors[n - 1]}")
-
         # Get the block and repeat it for each subsector
-        B = self.reordered_matrix.iloc[:N_K, col_idx : col_idx + 1].values
-        logger.debug(f"Initial B shape: {B.shape}")
+        B = self.reordered_matrix.loc[self.non_disaggregated_sector_names, sector_id]
 
-        # Always repeat to match the number of subsectors
-        B = np.repeat(B, self.sectors[n - 1].k, axis=1)
-        logger.debug(f"Final B shape after repeat: {B.shape}")
-
-        return B
+        return B.values
 
     def get_C(self, n: int) -> np.ndarray:
         """
@@ -282,12 +276,11 @@ class DisaggregationBlocks:
             logger.error(f"Sector {sector_id} not found in matrix index")
             raise
 
-        # Get the block and repeat it for each subsector
-        C = self.reordered_matrix.iloc[row_idx : row_idx + 1, :N_K].values
-        C = np.repeat(C, self.sectors[n - 1].k, axis=0)
+        C = self.reordered_matrix.loc[sector_id, self.non_disaggregated_sector_names].values
+
         return C
 
-    def get_D(self, n: int, l: int) -> np.ndarray:
+    def get_D_nl(self, n: int, l: int) -> float:
         """
         Get the D^{nℓ} block (sector n to sector ℓ).
 
@@ -303,18 +296,11 @@ class DisaggregationBlocks:
         # Find the row and column indices
         sector_n = self.sectors[n - 1].sector_id
         sector_l = self.sectors[l - 1].sector_id
-        try:
-            row_idx = self.reordered_matrix.index.get_loc(sector_n)
-            col_idx = self.reordered_matrix.columns.get_loc(sector_l)
-        except KeyError as e:
-            logger.error(f"Sector not found in matrix: {e}")
-            raise
 
-        # Get the block and repeat it for both dimensions
-        D = self.reordered_matrix.iloc[row_idx : row_idx + 1, col_idx : col_idx + 1].values
-        D = np.repeat(D, self.sectors[n - 1].k, axis=0)  # Repeat for rows
-        D = np.repeat(D, self.sectors[l - 1].k, axis=1)  # Repeat for columns
-        return D
+        return self.reordered_matrix.loc[sector_n, sector_l]  # noqa
+
+    def get_D(self, n: int) -> np.ndarray:
+        return np.array([self.get_D_nl(n, l) for l in range(1, self.K + 1)])
 
     def get_sector_info(self, n: int) -> SectorInfo:
         """
@@ -326,6 +312,30 @@ class DisaggregationBlocks:
         if not 1 <= n <= self.K:
             raise ValueError(f"Sector index {n} out of range [1, {self.K}]")
         return self.sectors[n - 1]
+
+    def get_m1_block(self, n: int, relative_weights: np.ndarray) -> np.ndarray:
+        k = self.sectors[n - 1].k
+        return generate_M1_block(len(self.non_disaggregated_sector_names), k, relative_weights)
+
+    def get_m2_block(self, n: int) -> np.ndarray:
+        k = self.sectors[n - 1].k
+        return generate_M2_block(len(self.non_disaggregated_sector_names), k)
+
+    def get_m3_nl_block(self, n: int, weights_l: np.ndarray) -> np.ndarray:
+        # repeat weights_l k_n times
+        k_n = self.sectors[n - 1].k
+        return np.array(list(weights_l) * k_n)
+
+    def get_m3_block(self, n: int, relative_weights: list[np.ndarray]) -> np.ndarray:
+        k = self.sectors[n - 1].k
+        n_cols = sum(len(w) * k for w in relative_weights)
+        m3 = np.zeros((k, n_cols))
+        col_index = 0
+        for i, weights in enumerate(relative_weights):
+            block = self.get_m3_nl_block(n, weights)
+            m3[i, col_index : col_index + len(block)] = block
+            col_index += len(block)
+        return m3
 
 
 class DisaggregatedBlocks(DisaggregationBlocks):
@@ -360,6 +370,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         aggregated_sectors_list: list[tuple[str, str]],
         m: int,
         final_demand: pd.Series,
+        output: pd.Series,
     ):
         super().__init__(
             sectors=sectors,
@@ -371,6 +382,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         self.aggregated_sectors_list = aggregated_sectors_list
         self.m = m
         self.final_demand = final_demand
+        self.output = output
 
     @classmethod
     def from_technical_coefficients(
@@ -391,21 +403,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         # Get technical coefficients from reader
         tech_coef = reader.technical_coefficients
 
-        # Create full mapping including all countries
-        full_mapping: dict[tuple[str, str], list[tuple[str, str]]] = {}
-        for country in reader.countries:
-            for agg_sector, disagg_sectors in sector_mapping.items():
-                # Create country-sector pairs
-                agg_pair = (country, agg_sector)
-                disagg_pairs = [(country, s) for s in disagg_sectors]
-                full_mapping[agg_pair] = disagg_pairs
-
-        # Create list of (sector_id, name, k) tuples for each aggregated sector
-        sectors_info = []
-        for agg_pair, disagg_pairs in full_mapping.items():
-            # Use sector code as name and number of subsectors as k
-            for pair in disagg_pairs:
-                sectors_info.append((pair, pair[1], 1))
+        full_mapping, sectors_info = get_sectors_info(reader.countries, sector_mapping)
 
         # Create base DisaggregationBlocks instance
         blocks = DisaggregationBlocks.from_technical_coefficients(tech_coef, sectors_info)
@@ -439,6 +437,7 @@ class DisaggregatedBlocks(DisaggregationBlocks):
             aggregated_sectors_list=aggregated_sectors_list,
             m=len(aggregated_sectors_list),
             final_demand=final_demand,
+            output=output,
         )
 
     def get_e_vector(self, n: int) -> np.ndarray:
@@ -533,3 +532,44 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         bn = self.get_bn_vector(n)
 
         return np.concatenate([E, F, G, bn])
+
+    def get_relative_output_weights(self, n: int) -> np.ndarray:
+        aggregated_sector = self.aggregated_sectors_list[n - 1]
+        # get the disaggregated sectors
+        disaggregated_sectors = self.sector_mapping[aggregated_sector]
+
+        indices = [
+            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors
+        ]
+        disaggregated_sectors = [self.disaggregated_sector_names[i] for i in indices]
+
+        output_vals = self.output.loc[disaggregated_sectors].values
+        return output_vals / output_vals.sum()
+
+
+def get_sectors_info(countries: list[str], sector_mapping: dict[str, list[str]]):
+    # Create full mapping including all countries
+    full_mapping: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for country in countries:
+        for agg_sector, disagg_sectors in sector_mapping.items():
+            # Create country-sector pairs
+            agg_pair = (country, agg_sector)
+            disagg_pairs = [(country, s) for s in disagg_sectors]
+            full_mapping[agg_pair] = disagg_pairs
+    # Create list of (sector_id, name, k) tuples for each aggregated sector
+    sectors_info = []
+    for agg_pair, disagg_pairs in full_mapping.items():
+        # Use sector code as name and number of subsectors as k
+        for pair in disagg_pairs:
+            sectors_info.append((pair, pair[1], 1))
+    return full_mapping, sectors_info
+
+
+def unfold_countries(
+    countries: list[str], sector_mapping: dict[str, list[str]]
+) -> list[tuple[SectorId, str, int]]:
+    sectors = []
+    for sector, disagg_sectors in sector_mapping.items():
+        for country in countries:
+            sectors.append(((country, sector), sector, len(disagg_sectors)))
+    return sectors
