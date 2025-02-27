@@ -399,7 +399,9 @@ class TestICIOReader:
 
         # Get reordered coefficients for disaggregating MFG sector
         blocks = DisaggregationBlocks.from_technical_coefficients(
-            tech_coef=sample_reader.technical_coefficients, sectors_info=sectors_info
+            tech_coef=sample_reader.technical_coefficients,
+            sectors_info=sectors_info,
+            output=sample_reader.output_from_out,
         )
 
         # Check that the matrix has the same values, just reordered
@@ -439,7 +441,12 @@ class TestICIOReader:
         # Try to disaggregate both sectors
 
         blocks = DisaggregationBlocks.from_technical_coefficients(
-            sample_reader.technical_coefficients, sectors_info
+            sample_reader.technical_coefficients,
+            sectors_info,
+            output=pd.Series(
+                index=sample_reader.technical_coefficients.index,
+                data=np.full(fill_value=100.0, shape=sample_reader.technical_coefficients.shape[0]),
+            ),
         )
         # Check basic properties
         assert blocks.K == len(sectors_info) * len(
@@ -465,7 +472,9 @@ class TestICIOReader:
         sectors_info = [("A01", "A01", 1), ("A03", "A03", 1)]
 
         blocks = DisaggregationBlocks.from_technical_coefficients(
-            tech_coef=usa_reader.technical_coefficients, sectors_info=sectors_info
+            tech_coef=usa_reader.technical_coefficients,
+            sectors_info=sectors_info,
+            output=usa_reader.output_from_out,
         )
 
         assert blocks.K == 4
@@ -488,7 +497,9 @@ class TestICIOReader:
 
         # Get reordered coefficients for disaggregating A01 sector
         blocks = DisaggregationBlocks.from_technical_coefficients(
-            tech_coef=usa_reader.technical_coefficients, sectors_info=sectors_info
+            tech_coef=usa_reader.technical_coefficients,
+            sectors_info=sectors_info,
+            output=icio_reader.output_from_out,
         )
 
         # Check basic structure

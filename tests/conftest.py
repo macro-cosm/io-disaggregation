@@ -181,6 +181,4 @@ def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
 
 @pytest.fixture(scope="session")
 def usa_reader_blocks(usa_reader):
-    return DisaggregatedBlocks.from_technical_coefficients(
-        usa_reader, sector_mapping={"A": ["A01", "A03"]}
-    )
+    return DisaggregatedBlocks.from_reader(usa_reader, sector_mapping={"A": ["A01", "A03"]})

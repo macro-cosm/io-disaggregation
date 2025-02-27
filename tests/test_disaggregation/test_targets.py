@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from disag_tools.configurations.config import DisaggregationConfig, SectorConfig, SubsectorConfig
 from disag_tools.disaggregation.targets import DisaggregationTargets
-from disag_tools.readers.blocks import DisaggregationBlocks
+from disag_tools.readers.disaggregation_blocks import DisaggregationBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
 # Configure logging for tests
@@ -274,7 +274,9 @@ def test_real_data_target_vector(icio_reader: ICIOReader):
     usa_reader = ICIOReader.from_csv_selection(icio_reader.data_path, selected_countries=["USA"])
 
     # Create blocks for A01 disaggregation
-    blocks = usa_reader.get_reordered_technical_coefficients(["A01"])
+    blocks = DisaggregationBlocks.from_technical_coefficients(
+        usa_reader.technical_coefficients, [(("USA", "A01"), "Agriculture", 3)]
+    )
 
     # Create config for A01 disaggregation into three subsectors
     config = DisaggregationConfig(
