@@ -69,7 +69,12 @@ def single_region_blocks(sample_single_region_tech_coef):
         ("A03", "Manufacturing", 3),  # A03 splits into 3 subsectors
     ]
     return DisaggregationBlocks.from_technical_coefficients(
-        sample_single_region_tech_coef, sectors_to_disaggregate
+        sample_single_region_tech_coef,
+        sectors_to_disaggregate,
+        output=pd.Series(
+            index=sample_single_region_tech_coef.index,
+            data=np.full(sample_single_region_tech_coef.shape[0], 100.0),
+        ),
     )
 
 
@@ -81,7 +86,12 @@ def multi_region_blocks(sample_multi_region_tech_coef):
         (("CAN", "A03"), "CAN Manufacturing", 3),  # CAN-A03 splits into 3
     ]
     return DisaggregationBlocks.from_technical_coefficients(
-        sample_multi_region_tech_coef, sectors_to_disaggregate
+        sample_multi_region_tech_coef,
+        sectors_to_disaggregate,
+        output=pd.Series(
+            index=sample_multi_region_tech_coef.index,
+            data=np.full(sample_multi_region_tech_coef.shape[0], 100.0),
+        ),
     )
 
 
