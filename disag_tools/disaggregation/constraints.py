@@ -1,7 +1,7 @@
 """Module for generating constraint matrices in disaggregation problems."""
 
 import logging
-from typing import Any, TypeAlias
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -265,7 +265,7 @@ def generate_M_n_matrix(
     )
 
     # Get z_n from z_l using 1-based indexing
-    z_n = z_l[n - 1]
+    z_n: float = z_l[n - 1]  # noqa
     logger.debug(f"Output z_n for sector {n}: {z_n}")
 
     # Calculate dimensions

@@ -3,18 +3,16 @@ Module for reading and processing Inter-Country Input-Output (ICIO) tables.
 
 This module provides functionality to read ICIO tables from CSV files and transform
 them into a standardized multi-index format suitable for further analysis and
-disaggregation.
+disaggregation. The module handles both single-region and multi-region tables,
+with special handling for final demand components and output calculations.
 """
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 import yaml
-
-from disag_tools.readers.blocks import DisaggregationBlocks
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +21,16 @@ class ICIOReader:
     """
     A class to read and process Inter-Country Input-Output (ICIO) tables.
 
-    This class handles the reading of ICIO data from CSV files and transforms it
-    into a multi-index DataFrame where both rows and columns are indexed by
-    (country, sector) pairs.
+    This class handles the reading and processing of ICIO data, providing methods to:
+    1. Read data from CSV files with proper handling of multi-region structure
+    2. Extract intermediate demand, final demand, and output information
+    3. Compute technical coefficients
+    4. Handle country and industry aggregation
+    5. Validate data consistency
+
+    The class maintains a strict separation between regular industries and special sectors
+    (like VA, TLS) to ensure correct calculations. All methods automatically handle this
+    separation and work only with regular industries unless explicitly stated otherwise.
 
     IMPORTANT: The self.industries attribute contains ONLY the regular industry codes,
     with all special sectors (VA, TLS, etc.) already filtered out. When working with
@@ -39,13 +44,29 @@ class ICIOReader:
         # INCORRECT way (may include special sectors):
         sectors = list(set(reader.data.index.get_level_values(1)))
 
+    Key Properties:
+        - intermediate_demand_table: Get flows between industries
+        - final_demand: Get total final demand for each industry
+        - technical_coefficients: Get input-output coefficients
+        - output_from_out: Get output values from OUT/OUTPUT rows
+        - output_from_sums: Calculate output by summing intermediate and final demand
+
     Attributes:
-        data (pd.DataFrame): The processed ICIO table with multi-index structure
-        countries (list[str]): List of unique country codes in the table
-        industries (list[str]): List of regular industry codes in the table, excluding
-            all special sectors (VA, TLS, etc.). This is the source of truth for
+        data (pd.DataFrame): The processed ICIO table with multi-index structure.
+            Both rows and columns are indexed by (country, sector) pairs.
+        countries (list[str]): List of unique country codes in the table,
+            excluding special elements like VA, TLS.
+        industries (list[str]): List of regular industry codes in the table,
+            excluding all special sectors. This is the source of truth for
             valid sectors in the data.
-        data_path (str | Path | None): Path to the data file, if loaded from file
+        data_path (str | Path | None): Path to the data file, if loaded from file.
+
+    Special Handling:
+        - Special sectors (VA, TLS, etc.) are automatically filtered out in calculations
+        - Final demand components (HFCE, NPISH, etc.) are handled separately
+        - Output can be retrieved from OUT/OUTPUT rows or calculated from sums
+        - Country aggregation supports creating ROW (Rest of World) aggregate
+        - Industry aggregation preserves special rows/columns
     """
 
     # Special elements in the ICIO tables
@@ -136,15 +157,27 @@ class ICIOReader:
         """
         Create an ICIOReader from a CSV file.
 
+        This method reads an ICIO table from a CSV file and processes it into the
+        standardized format. The input CSV must have:
+        1. A multi-index header with country and industry codes
+        2. A multi-index row index with country and industry codes
+        3. Both intermediate demand and final demand components
+
+        The method automatically:
+        - Identifies and separates regular industries from special sectors
+        - Validates the data structure and contents
+        - Sets up proper indexing for both rows and columns
+        - Handles both single-region and multi-region tables
+
         Args:
-            csv_path: Path to the CSV file
+            csv_path: Path to the CSV file containing the ICIO table
 
         Returns:
-            ICIOReader: Initialized reader
+            ICIOReader: Initialized reader with processed data
 
         Raises:
-            FileNotFoundError: If file doesn't exist
-            ValueError: If file format is invalid
+            FileNotFoundError: If the specified file doesn't exist
+            ValueError: If the file format is invalid or data is corrupted
         """
         csv_path = Path(csv_path)
         if not csv_path.exists():
@@ -194,15 +227,32 @@ class ICIOReader:
         """
         Create an ICIOReader from a CSV file with selected countries.
 
+        This method allows you to work with a subset of countries while aggregating
+        all others into a "Rest of World" (ROW) region. This is useful for:
+        1. Reducing the size of large ICIO tables
+        2. Focusing analysis on specific countries
+        3. Creating custom regional aggregations
+
+        The aggregation process:
+        1. Reads the full ICIO table
+        2. Identifies countries to keep separate
+        3. Aggregates all other countries into ROW
+        4. Preserves special sectors and final demand components
+        5. Maintains consistency in the aggregated data
+
         Args:
-            csv_path: Path to the CSV file
-            selected_countries: List of countries to keep separate (others will be aggregated to ROW)
+            csv_path: Path to the CSV file containing the ICIO table
+            selected_countries: List of country codes to keep separate. All other
+                countries will be aggregated into a "ROW" (Rest of World) region.
+                If None, returns the full table without aggregation.
 
         Returns:
-            A new ICIOReader with aggregated data
+            ICIOReader: A new reader with the selected countries separate and
+                others aggregated to ROW
 
         Raises:
-            ValueError: If any selected country is invalid
+            ValueError: If any selected country code is invalid
+            FileNotFoundError: If the CSV file doesn't exist
         """
         # First read the full data
         reader = cls.from_csv(csv_path)
@@ -281,7 +331,44 @@ class ICIOReader:
         selected_countries: list[str] | None = None,
         industry_aggregation: dict[str, list[str]] | None = None,
     ) -> "ICIOReader":
-        """Create an ICIOReader from a CSV file with optional country and industry aggregation."""
+        """
+        Create an ICIOReader with both country and industry aggregation.
+
+        This method provides the most flexible way to aggregate an ICIO table,
+        allowing both country and industry aggregation in a single step. This
+        is particularly useful for:
+        1. Creating custom regional and sectoral aggregations
+        2. Reducing table dimensions for analysis
+        3. Matching different classification schemes
+
+        The aggregation process:
+        1. Reads the full ICIO table
+        2. Applies country aggregation if specified
+           - Keeps selected countries separate
+           - Aggregates others into ROW
+        3. Applies industry aggregation if specified
+           - Combines industries according to the mapping
+           - Preserves special sectors
+        4. Maintains consistency in the aggregated data
+
+        Args:
+            csv_path: Path to the CSV file containing the ICIO table
+            selected_countries: List of country codes to keep separate. All other
+                countries will be aggregated into a "ROW" (Rest of World) region.
+                If None, no country aggregation is performed.
+            industry_aggregation: Dictionary mapping new industry codes to lists
+                of original industry codes to combine. For example:
+                {"AGR": ["A01", "A02", "A03"]} would combine the agricultural
+                sectors into a single AGR sector. If None, no industry
+                aggregation is performed.
+
+        Returns:
+            ICIOReader: A new reader with the specified aggregations applied
+
+        Raises:
+            ValueError: If any country or industry code is invalid
+            FileNotFoundError: If the CSV file doesn't exist
+        """
         # First read the data normally
         reader = cls.from_csv(csv_path)
 
@@ -378,11 +465,6 @@ class ICIOReader:
         Returns:
             DataFrame with aggregated data
         """
-        logger = logging.getLogger(__name__)
-        logger.debug("Starting data aggregation")
-        logger.debug(f"Original data shape: {data.shape}")
-        logger.debug(f"Original index levels: {data.index.levels}")
-        logger.debug(f"Original columns levels: {data.columns.levels}")
 
         if country_mapping is None and industry_mapping is None:
             return data
@@ -504,13 +586,27 @@ class ICIOReader:
     @property
     def output_from_out(self) -> pd.Series:
         """
-        Get output values from the OUT row.
+        Get output values from the OUT/OUTPUT row of the ICIO table.
+
+        This method attempts to retrieve output values from dedicated output rows
+        in the following order:
+        1. Tries the "OUT" row first
+        2. Falls back to "OUTPUT" row if "OUT" is not found
+        3. Raises an error if neither is found
+
+        The output values are essential for:
+        - Computing technical coefficients
+        - Validating table consistency
+        - Analyzing sector sizes and importance
 
         Returns:
-            pd.Series: Output values indexed by country-industry pairs
+            pd.Series: Output values for each country-industry pair, indexed by
+                a MultiIndex of (country, industry). Only regular industries
+                are included (no special sectors).
 
         Raises:
-            ValueError: If output values cannot be retrieved
+            ValueError: If output values cannot be found in either OUT or
+                OUTPUT rows
         """
         # Create valid pairs for regular countries
         valid_pairs = pd.MultiIndex.from_product(
@@ -545,13 +641,29 @@ class ICIOReader:
 
     @property
     def output_from_sums(self) -> pd.Series:
-        """Calculate total output for each sector by summing intermediate and final demand.
+        """
+        Calculate total output by summing intermediate and final demand.
 
-        Returns
-        -------
-        pd.Series
-            Total output for each sector, indexed by (country, sector) pairs.
-            Special sectors like 'VA' and 'TLS' are excluded.
+        This method provides an alternative way to compute output values by
+        summing all uses of each sector's production:
+        1. Intermediate demand (flows to other industries)
+        2. Final demand (all components like HFCE, GGFC, etc.)
+
+        This is useful for:
+        - Validating output values from OUT/OUTPUT rows
+        - Computing output when OUT/OUTPUT rows are missing
+        - Checking table consistency
+
+        The calculation:
+        total_output[i] = sum(z[i,j] for all j) + sum(fd[i] for all fd_components)
+        where:
+        - z[i,j] is the flow from sector i to sector j
+        - fd[i] is final demand for sector i's output
+
+        Returns:
+            pd.Series: Computed output values for each country-industry pair,
+                indexed by a MultiIndex of (country, industry). Only regular
+                industries are included (no special sectors).
         """
         logger.debug("Calculating output from sums")
 
@@ -578,50 +690,30 @@ class ICIOReader:
         return total_output
 
     @property
-    def final_demand_table(self) -> pd.DataFrame:
-        """
-        Get the final demand table (all columns with final demand prefixes).
-
-        Returns:
-            pd.DataFrame: Final demand table with country-industry pairs as index
-                and final demand categories as columns
-        """
-        # Create valid pairs for regular countries
-        valid_pairs = pd.MultiIndex.from_product(
-            [self.countries, self.industries], names=["CountryInd", "industryInd"]
-        )
-
-        # Get final demand columns (those with special prefixes)
-        final_demand_cols = [
-            col
-            for col in self.data.columns
-            if any(col[0].startswith(prefix) for prefix in self.FINAL_DEMAND_PREFIXES)
-        ]
-
-        # Return the final demand table
-        return self.data.loc[valid_pairs, final_demand_cols]
-
-    @property
-    def final_demand_totals(self) -> pd.Series:
-        """
-        Get total final demand values (sum of all final demand columns).
-
-        Returns:
-            pd.Series: Total final demand values indexed by country-industry pairs
-        """
-        return self.final_demand_table.sum(axis=1)
-
-    @property
     def intermediate_demand_table(self) -> pd.DataFrame:
         """
-        Get the intermediate demand table (only country-industry flows).
+        Get the intermediate demand table (flows between industries).
+
+        This method extracts the core inter-industry flows from the ICIO table,
+        excluding all special sectors and final demand components. The resulting
+        table shows how much of each industry's output is used as input by
+        other industries.
+
+        Special handling:
+        - Excludes all special sectors (VA, TLS, etc.)
+        - Excludes all final demand components
+        - Works with both single-region and multi-region tables
+        - Validates data for missing or infinite values
 
         Returns:
-            pd.DataFrame: Intermediate demand table with country-industry pairs
-                as both index and columns
+            pd.DataFrame: Intermediate demand table where:
+                - Rows: Supplying industries (outputs)
+                - Columns: Using industries (inputs)
+                - Values: Flow values from row industry to column industry
+                - Index/Columns: MultiIndex of (country, industry) pairs
 
         Raises:
-            ValueError: If the data contains invalid values
+            ValueError: If the data contains missing or infinite values
         """
         logger = logging.getLogger(__name__)
         logger.debug("Getting intermediate demand table")
@@ -660,15 +752,84 @@ class ICIOReader:
         return table
 
     @property
+    def final_demand_table(self) -> pd.DataFrame:
+        """
+        Get the complete final demand table with all components.
+
+        This method extracts all final demand components from the ICIO table,
+        maintaining the separation between different types of final demand
+        (HFCE, NPISH, GGFC, etc.). This is useful for:
+        - Analyzing the composition of final demand
+        - Studying consumption patterns
+        - Computing detailed multipliers
+
+        The table includes all final demand components:
+        - HFCE: Household final consumption expenditure
+        - NPISH: Non-profit institutions serving households
+        - GGFC: Government final consumption expenditure
+        - GFCF: Gross fixed capital formation
+        - INVNT: Changes in inventories
+        - Others as defined in FINAL_DEMAND_PREFIXES
+
+        Returns:
+            pd.DataFrame: Final demand table where:
+                - Rows: Supplying industries
+                - Columns: Final demand components by country
+                - Values: Final demand values
+                - Row Index: MultiIndex of (country, industry) pairs
+                - Column Index: MultiIndex of (country, final_demand_type)
+        """
+        logger.debug("Calculating total final demand")
+
+        # Create valid pairs from regular sectors only
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
+        logger.debug(f"Created {len(valid_pairs)} valid pairs for final demand")
+
+        # Get final demand columns
+        fd_cols = [
+            col
+            for col in self.data.columns.get_level_values(1).unique()
+            if any(col.startswith(p) for p in self.FINAL_DEMAND_PREFIXES)
+        ]
+        logger.debug(f"Found final demand columns: {fd_cols}")
+
+        # Create column index for final demand
+        fd_idx = pd.MultiIndex.from_product(
+            [self.countries, fd_cols], names=["CountryInd", "industryInd"]
+        )
+        logger.debug(f"Created final demand column index with {len(fd_idx)} pairs")
+
+        # Sum across all final demand columns
+        final = self.data.loc[valid_pairs, fd_idx]
+
+        return final
+
+    @property
     def final_demand(self) -> pd.Series:
         """
         Get total final demand for each sector.
 
-        This method sums all final demand components (HFCE, NPISH, GGFC, etc.)
-        for each sector, excluding special sectors like VA and TLS.
+        This method computes the total final demand by summing across all final
+        demand components for each sector. This gives a single value representing
+        the total final use of each sector's output.
+
+        The calculation includes:
+        1. All final demand components (HFCE, NPISH, GGFC, etc.)
+        2. All demanding countries
+        3. Only regular sectors (no VA, TLS, etc.)
+
+        This is particularly useful for:
+        - Computing output multipliers
+        - Analyzing sector dependencies
+        - Checking table balances
 
         Returns:
-            pd.Series: Total final demand for each sector, indexed by (country, sector) pairs
+            pd.Series: Total final demand where:
+                - Index: MultiIndex of (country, industry) pairs
+                - Values: Sum of all final demand components
+                - Only regular industries included (no special sectors)
         """
         logger.debug("Calculating total final demand")
 
@@ -701,27 +862,56 @@ class ICIOReader:
     @property
     def intermediate_consumption(self) -> pd.Series:
         """
-        Get intermediate consumption values.
+        Get total intermediate consumption for each sector.
+
+        This method computes the total intermediate use of each sector's output
+        by summing across all using industries. This represents how much of
+        each sector's output is used as input by other sectors.
+
+        The calculation:
+        - Sums across all columns of the intermediate demand table
+        - Excludes final demand components
+        - Excludes special sectors
+
+        This is useful for:
+        - Analyzing supply chain dependencies
+        - Computing forward linkages
+        - Checking table balances
 
         Returns:
-            pd.Series: Intermediate consumption values indexed by country-industry pairs
+            pd.Series: Total intermediate consumption where:
+                - Index: MultiIndex of (country, industry) pairs
+                - Values: Sum of all intermediate uses
+                - Only regular industries included (no special sectors)
         """
         return self.intermediate_demand_table.sum(axis=1)
 
     @property
     def technical_coefficients(self) -> pd.DataFrame:
         """
-        Get the technical coefficients matrix.
+        Compute the technical coefficients matrix.
 
-        The technical coefficients matrix A is computed such that entry a[i,j] is the flow
-        in the intermediate use table from industry i to industry j (z[i,j]) divided by
-        the output of industry j: a[i,j] = z[i,j]/output[j].
+        The technical coefficients matrix A shows the input requirements per unit
+        of output. Each entry a[i,j] represents the amount of input from sector i
+        needed to produce one unit of output in sector j.
 
-        Any coefficients that would be infinity (due to zero output) are set to 0.
+        Calculation:
+        a[i,j] = z[i,j] / output[j]
+        where:
+        - z[i,j] is the flow from sector i to sector j
+        - output[j] is the total output of sector j
+
+        Special handling:
+        - If output[j] = 0, all coefficients in column j are set to 0
+        - Special sectors (VA, TLS, etc.) are excluded
+        - Only regular industries are included in both rows and columns
 
         Returns:
-            pd.DataFrame: Technical coefficients matrix with the same index/columns structure
-                as the intermediate demand table
+            pd.DataFrame: Technical coefficients matrix with:
+                - Rows: Supplying sectors (inputs)
+                - Columns: Using sectors (outputs)
+                - Values: Input requirements per unit of output
+                - Index/Columns: MultiIndex of (country, industry) pairs
         """
         # Get intermediate flows and output
         z = self.intermediate_demand_table
@@ -738,186 +928,28 @@ class ICIOReader:
 
         return coefficients
 
-    def get_reordered_technical_coefficients(
-        self, sectors_to_disaggregate: list[str]
-    ) -> DisaggregationBlocks:
-        """
-        Get the technical coefficients matrix reordered for disaggregation.
-
-        This method reorders the technical coefficients matrix so that sectors to be
-        disaggregated are moved to the bottom-right blocks. The resulting matrix has
-        the following block structure:
-
-        [A_0    B^1  ... B^K]
-        [C^1    D^11 ... D^1K]
-        [...    ...  ... ...]
-        [C^K    D^K1 ... D^KK]
-
-        where:
-        - A_0 is the block for undisaggregated sectors
-        - B^i are the blocks from undisaggregated to disaggregated sectors
-        - C^i are the blocks from disaggregated to undisaggregated sectors
-        - D^ij are the blocks between disaggregated sectors
-
-        Args:
-            sectors_to_disaggregate: List of sector codes to be disaggregated
-
-        Returns:
-            DisaggregationBlocks instance containing the reordered matrix and sector info
-        """
-        # Get technical coefficients
-        coefficients = self.technical_coefficients
-
-        # Create list of (sector_id, name, k) tuples for DisaggregationBlocks
-        # Each sector_id is a tuple of (country, sector) pairs for that sector
-        sectors_info = []
-        for sector in sectors_to_disaggregate:
-            # Find all pairs in the index that match this sector code
-            matching_pairs = sorted(
-                [idx for idx in coefficients.index if isinstance(idx, tuple) and idx[1] == sector]
-            )
-            # Create a single entry for this sector, including all country-sector pairs
-            if matching_pairs:
-                # Use the first pair's country as the representative
-                first_pair = matching_pairs[0]
-                sectors_info.append((first_pair, f"Sector {first_pair[1]}", 3))
-
-        # Create DisaggregationBlocks instance
-        return DisaggregationBlocks.from_technical_coefficients(coefficients, sectors_info)
-
-    def get_E_block(
-        self, undisaggregated_sectors: list[str], disaggregated_sectors: list[str]
-    ) -> pd.DataFrame:
-        """Extract the E block from technical coefficients.
-
-        This block contains flows FROM all undisaggregated sectors (in all countries)
-        TO the disaggregated sector in the target country.
-
-        The shape of the E block is ((N-K) × k_n) where:
-        - N-K is the number of undisaggregated sectors across all countries
-        - k_n is the number of subsectors for sector n
-
-        Args:
-            undisaggregated_sectors: List of sector codes that remain undisaggregated
-            disaggregated_sectors: List of sector codes being disaggregated
-
-        Returns:
-            DataFrame with flows from undisaggregated to disaggregated sectors
-
-        Raises:
-            ValueError: If no sectors are provided
-            KeyError: If any sector code is not found in the data
-        """
-        if not undisaggregated_sectors:
-            raise ValueError("At least one undisaggregated sector required")
-        if not disaggregated_sectors:
-            raise ValueError("At least one disaggregated sector required")
-
-        tech_coef = self.technical_coefficients
-
-        # Create indices for undisaggregated sectors (all countries)
-        row_idx = pd.MultiIndex.from_product(
-            [self.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-        # For disaggregated sectors, we only want the target country
-        col_idx = pd.MultiIndex.from_product(
-            [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-
-        # Extract block
-        E = tech_coef.loc[row_idx, col_idx]
-        logger.debug(f"Extracted E block with shape {E.shape}")
-        return E
-
-    def get_F_block(
-        self, undisaggregated_sectors: list[str], disaggregated_sectors: list[str]
-    ) -> pd.DataFrame:
-        """Extract the F block from technical coefficients.
-
-        This block contains flows FROM the disaggregated sector in the target country
-        TO all undisaggregated sectors (in all countries).
-
-        Args:
-            undisaggregated_sectors: List of sector codes that remain undisaggregated
-            disaggregated_sectors: List of sector codes being disaggregated
-
-        Returns:
-            DataFrame with flows from disaggregated to undisaggregated sectors
-
-        Raises:
-            ValueError: If no sectors are provided
-            KeyError: If any sector code is not found in the data
-        """
-        if not undisaggregated_sectors:
-            raise ValueError("At least one undisaggregated sector required")
-        if not disaggregated_sectors:
-            raise ValueError("At least one disaggregated sector required")
-
-        tech_coef = self.technical_coefficients
-
-        # For disaggregated sectors, we only want the target country
-        row_idx = pd.MultiIndex.from_product(
-            [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-        # Create indices for undisaggregated sectors (all countries)
-        col_idx = pd.MultiIndex.from_product(
-            [self.countries, undisaggregated_sectors], names=["CountryInd", "industryInd"]
-        )
-
-        # Extract block
-        F = tech_coef.loc[row_idx, col_idx]
-        logger.debug(f"Extracted F block with shape {F.shape}")
-        return F
-
-    def get_G_block(self, sector_n: list[str], sectors_l: list[list[str]]) -> pd.DataFrame:
-        """Extract the G block from technical coefficients.
-
-        This block contains flows FROM the disaggregated sector n's subsectors
-        TO all subsectors of all sectors ℓ. Each G^{nℓ} represents flows from
-        sector n's subsectors to sector ℓ's subsectors, summed across all countries.
-
-        Args:
-            sector_n: List of subsectors for sector n being disaggregated
-            sectors_l: List of lists of subsectors for each sector l that n interacts with
-
-        Returns:
-            DataFrame with flows between disaggregated sectors, summed across countries
-
-        Raises:
-            ValueError: If no sectors are provided
-            KeyError: If any sector code is not found in the data
-        """
-        if not sector_n:
-            raise ValueError("At least one sector required for sector_n")
-        if not sectors_l or not any(sectors_l):
-            raise ValueError("At least one sector required for sectors_l")
-
-        tech_coef = self.technical_coefficients
-
-        # For row indices, we want the target country's subsectors
-        row_idx = pd.MultiIndex.from_product(
-            [["USA"], sector_n], names=["CountryInd", "industryInd"]
-        )
-
-        # For column indices, we want all countries' subsectors for each sector l
-        col_sectors = [s for sector in sectors_l for s in sector]
-        col_idx = pd.MultiIndex.from_product(
-            [self.countries, col_sectors], names=["CountryInd", "industryInd"]
-        )
-
-        # Extract block and sum across destination countries
-        G = tech_coef.loc[row_idx, col_idx].T.groupby("industryInd").sum().T
-        logger.debug(f"Extracted G block with shape {G.shape}")
-        logger.debug(f"G block sums flows across {len(self.countries)} countries")
-        return G
-
     @staticmethod
     def load_industry_list() -> list[str]:
         """
         Load the list of valid ICIO industries from the yaml file.
 
+        This method reads the standard list of ICIO industry codes from a
+        configuration file. This ensures consistency in industry codes across
+        different ICIO tables and provides a reference for valid codes.
+
+        The industry list:
+        - Contains all standard ICIO industry codes
+        - Excludes special sectors (VA, TLS, etc.)
+        - Is sorted alphabetically
+        - Is used for validation and reference
+
         Returns:
-            list[str]: List of valid industry codes
+            list[str]: Sorted list of valid industry codes that can appear
+                in ICIO tables
+
+        Raises:
+            FileNotFoundError: If the industry list file is not found
+            yaml.YAMLError: If the file is not valid YAML
         """
         industry_file = Path(__file__).parent / "data" / "industry_list.yaml"
         try:

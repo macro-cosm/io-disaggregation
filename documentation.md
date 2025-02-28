@@ -13,12 +13,13 @@ This documentation describes the implementation and usage of tools for reading a
 
 ## ICIO Tables Overview
 
-Inter-Country Input-Output (ICIO) tables represent economic flows between industries and countries in a standardized format. These tables capture:
+Inter-Country Input-Output (ICIO) tables represent economic relationships between industries and countries in a standardized format. These tables capture:
 
-- **Intermediate consumption**: Industry-to-industry flows within and between countries
-- **Final demand**: Consumption by households, government, and other end users
-- **Value added**: Additional economic value created by each industry
-- **Output**: Total output of each industry, available both as a row and as the sum of intermediate consumption and final demand
+- **Intermediate consumption**: Industry-to-industry flows within and between countries, measured in current million USD
+- **Technical coefficients**: Input requirements per unit of output, derived by dividing industry-to-industry flows by the using industry's total output
+- **Final demand**: Consumption by households, government, and other end users, measured in current million USD
+- **Value added**: Additional economic value created by each industry, measured in current million USD
+- **Output**: Total output of each industry, available both as a row and as the sum of intermediate consumption and final demand, measured in current million USD
 
 All flows are measured in current million USD.
 
@@ -66,7 +67,7 @@ The data is transformed into a pandas DataFrame with MultiIndex structure:
 
 - Index: (CountryInd, industryInd) pairs
 - Columns: (CountryInd, industryInd) pairs
-- Values: Flow values in current million USD
+- Values: For the raw ICIO table, values represent monetary flows in current million USD. When accessed through the technical_coefficients property, values represent input requirements per unit of output.
 
 ## Configuration System
 
@@ -140,6 +141,35 @@ The system uses YAML files for configuration:
              AGR: 0.55  # 55% of USA's agriculture is in the West
              MFG: 0.40  # 40% of USA's manufacturing is in the West
    ```
+
+### Configuration Example
+
+```yaml
+# Configuration for disaggregating USA agriculture sector
+data:
+  input_path: "path/to/input.csv"
+  selected_countries: ["USA", "CHN"]  # Countries to include in analysis
+  target_country: "USA"  # Required: Country containing sector to disaggregate
+  
+disaggregation:
+  sector: "AGR"  # Sector to disaggregate
+  subsectors: ["AGR1", "AGR2"]  # New subsectors
+  
+constraints:
+  output:
+    - type: "total_output"
+      value: 100.0
+      subsector: "AGR1"
+    - type: "total_output" 
+      value: 200.0
+      subsector: "AGR2"
+      
+  intermediate:
+    - type: "intermediate_use"
+      value: 50.0
+      subsector: "AGR1"
+      using_sector: "MFG"
+```
 
 ### Validation Rules
 
@@ -215,6 +245,29 @@ When performing country selection and aggregation:
 
 The `DisaggregationBlocks` class handles the block structure of disaggregation problems, supporting both single-region and multi-region Input-Output tables. It maintains the mapping between sector indices and their codes/names, and provides methods to access various blocks in the mathematical formulation.
 
+#### Block Structure
+
+The technical coefficients matrix is reordered into a block structure:
+
+```
+[A₀    B¹  B²  ... Bᵏ ]
+[C¹    D¹¹ D¹² ... D¹ᵏ]
+[C²    D²¹ D²² ... D²ᵏ]
+[...   ... ... ... ...]
+[Cᵏ    Dᵏ¹ ... ... Dᵏᵏ]
+```
+
+Where:
+- A₀: Flows between undisaggregated sectors (forms the top-left block)
+- Bⁿ: Flows from undisaggregated to disaggregated sectors
+- Cⁿ: Flows from disaggregated to undisaggregated sectors
+- Dⁿˡ: Flows between disaggregated sectors
+
+IMPORTANT: The ordering of sectors in this structure is critical:
+1. Undisaggregated sectors appear first, forming the A₀ block
+2. Disaggregated sectors follow, maintaining their specified order
+3. For multi-region tables, country-sector pairs are ordered consistently
+
 #### Key Features
 
 - Support for both single-region and multi-region IO tables
@@ -224,86 +277,110 @@ The `DisaggregationBlocks` class handles the block structure of disaggregation p
 
 #### Data Structures
 
-1. **SectorInfo**
+1. **SectorId Type**
    ```python
-   class SectorInfo(NamedTuple):
-       index: int          # The index n in the mathematical formulation
-       sector_id: SectorId # Sector identifier (code or country-code pair)
-       name: str          # Human readable name
-       k: int            # Number of subsectors this splits into
+   SectorId = str | tuple[str, str]  # sector_code or (country, sector)
    ```
 
-2. **SectorId Type**
-   - Single-region tables: `str` (sector code)
-   - Multi-region tables: `tuple[str, str]` (country, sector)
-
-#### Properties
-
-- `N`: Total number of sectors
-- `K`: Number of sectors being disaggregated
-- `M`: Total number of subsectors after disaggregation
-- `is_multi_region`: Whether this is a multi-region disaggregation
+2. **SectorInfo Class**
+   ```python
+   class SectorInfo:
+       index: int        # 1-based index in math notation
+       sector_id: SectorId
+       name: str
+       k: int           # number of subsectors
+   ```
 
 #### Block Access Methods
 
 1. **A₀ Block**
    ```python
    def get_A0(self) -> np.ndarray:
-       """Get the A₀ block (undisaggregated sectors)."""
+       """Get the A₀ block (undisaggregated sectors).
+       
+       This block contains flows between sectors that are not being
+       disaggregated. It forms the top-left block of the reordered matrix.
+       """
    ```
 
 2. **B^n Block**
    ```python
    def get_B(self, n: int) -> np.ndarray:
-       """Get the B^n block (undisaggregated to sector n)."""
+       """Get the B^n block (flows from undisaggregated to sector n).
+       
+       This block contains flows FROM all undisaggregated sectors
+       TO the subsectors of sector n.
+       
+       Args:
+           n: 1-based index of the disaggregated sector
+       """
    ```
 
 3. **C^n Block**
    ```python
    def get_C(self, n: int) -> np.ndarray:
-       """Get the C^n block (sector n to undisaggregated)."""
+       """Get the C^n block (flows from sector n to undisaggregated).
+       
+       This block contains flows FROM the subsectors of sector n
+       TO all undisaggregated sectors.
+       
+       Args:
+           n: 1-based index of the disaggregated sector
+       """
    ```
 
 4. **D^{nℓ} Block**
    ```python
    def get_D(self, n: int, l: int) -> np.ndarray:
-       """Get the D^{nℓ} block (sector n to sector ℓ)."""
+       """Get the D^{nℓ} block (flows between sectors n and ℓ).
+       
+       This block contains flows between the subsectors of two
+       different disaggregated sectors.
+       
+       Args:
+           n: 1-based index of the source sector
+           l: 1-based index of the destination sector
+       """
    ```
 
 #### Matrix Reordering
 
-The class implements a sophisticated reordering strategy for technical coefficient matrices:
+The reordering process follows these steps:
 
-1. **Single-region Tables**
-   - Undisaggregated sectors are sorted alphabetically
-   - Disaggregated sectors maintain the order specified in the configuration
+1. **Sector Organization**
+   - First add all sectors that are NOT being disaggregated
+   - Then add sectors that ARE being disaggregated in their specified order
 
-2. **Multi-region Tables**
-   - Undisaggregated sectors are sorted by country, then sector
-   - Disaggregated sectors maintain their specified order while ensuring:
-     - Each sector's own country-sector pair appears first
-     - Additional country-sector pairs for the same sector follow
-     - No duplicate pairs are included
-     - Original sector ordering is preserved
+2. **Multi-region Handling**
+   - For each sector being disaggregated:
+     1. Add all country-sector pairs for that sector
+     2. Maintain consistent ordering of countries
+     3. Ensure no duplicate pairs
+
+3. **Index Tracking**
+   - Use 1-based indexing in mathematical notation
+   - Track both original and reordered positions
+   - Maintain mapping between indices and sector information
 
 #### Usage Example
 
 ```python
 # Create blocks from technical coefficients
-blocks = DisaggregationBlocks.from_technical_coefficients(
-    tech_coef=technical_coefficients,
-    sectors_to_disaggregate=[
-        ((country, sector), name, k),  # Multi-region
-        # OR
-        (sector_code, name, k),        # Single-region
-    ]
+blocks = DisaggregationBlocks.from_reader(
+   tech_coef=technical_coefficients,
+   sectors_info=[
+      # Multi-region case
+      ((country, sector), f"Sector {sector}", k),
+      # Single-region case
+      (sector_code, f"Sector {sector_code}", k),
+   ]
 )
 
 # Access blocks
-A0 = blocks.get_A0()
-B1 = blocks.get_B(1)  # B block for first sector
-C1 = blocks.get_C(1)  # C block for first sector
-D12 = blocks.get_D(1, 2)  # D block between sectors 1 and 2
+A0 = blocks.get_A0()  # Undisaggregated sector flows
+B1 = blocks.get_B(1)  # Flows to first disaggregated sector
+C1 = blocks.get_C(1)  # Flows from first disaggregated sector
+D12 = blocks.get_D(1, 2)  # Flows between first and second sectors
 
 # Get sector information
 sector_info = blocks.get_sector_info(1)
@@ -417,6 +494,28 @@ final_demand = reader.final_demand
 
 # Get intermediate consumption
 intermediate = reader.intermediate_consumption
+
+# Extract blocks for disaggregation
+# Note: target_country is required for E and F block extraction
+E = reader.get_e_vector(
+   undisaggregated_sectors=["MFG", "SRV"],
+   disaggregated_sectors=["AGR"],
+   target_country="USA"
+)
+
+F = reader.get_f_vector(
+   undisaggregated_sectors=["MFG", "SRV"],
+   disaggregated_sectors=["AGR"],
+   target_country="USA"
+)
+
+# G block extraction for multi-region case
+sector_n = ("USA", "AGR")  # Source sector
+subsectors_n = ["AGR1", "AGR2"]  # Subsectors
+sectors_l = [("USA", "MFG")]  # Target sectors
+subsectors_l = [["MFG1", "MFG2"]]  # Target subsectors
+
+G = reader.get_G_n_vector(sector_n, subsectors_n, sectors_l, subsectors_l)
 ```
 
 ### Data Validation
@@ -556,37 +655,29 @@ The project uses modern Python packaging tools and configurations:
 ---
 **Note**: This documentation will be updated as new features and improvements are added to the codebase.
 
-### Block Structure for Multi-Region Tables
+## Block Structure for Multi-Region Tables
 
-When working with multi-region Input-Output tables, the block structure requires special handling to maintain flows across all country pairs. Here's how each block is structured:
+The disaggregation process for multi-region input-output tables involves three main blocks:
 
-#### E Block
-- Shape: (N_K × k_n) where:
-  * N_K = N_u * N_c (undisaggregated sectors × countries)
-  * k_n is the number of subsectors for sector n
-- Contains flows FROM all undisaggregated sectors in ALL countries TO the target country's subsectors
-- Example: For USA's A sector split into A01 and A03, includes flows from all other sectors in all countries to USA's A01 and A03
+### E Block
+The E block contains flows from all undisaggregated sectors in all countries to the target country's subsectors. When extracting the E block:
+- A target country MUST be specified
+- The block will have dimensions (N × M) where:
+  - N = number of undisaggregated sectors × number of countries
+  - M = number of subsectors for the disaggregated sector
 
-#### F Block
-- Shape: (k_n × N_K) where:
-  * k_n is the number of subsectors for sector n
-  * N_K = N_u * N_c (undisaggregated sectors × countries)
-- Contains flows FROM the target country's subsectors TO all undisaggregated sectors in ALL countries
-- Example: For USA's A sector, includes flows from USA's A01 and A03 to all other sectors in all countries
+### F Block 
+The F block contains flows from the target country's subsectors to all undisaggregated sectors in all countries. When extracting the F block:
+- A target country MUST be specified
+- The block will have dimensions (M × N) where:
+  - M = number of subsectors for the disaggregated sector
+  - N = number of undisaggregated sectors × number of countries
 
-#### G Block
-- Shape: (k_n × sum(k_ℓ) * N_c) where:
-  * k_n is the number of subsectors for sector n
-  * k_ℓ are the numbers of subsectors for each sector ℓ
-  * N_c is the number of countries
-- Contains flows between subsectors across ALL country pairs
-- Each G^{nℓ} represents flows from sector n's subsectors to sector ℓ's subsectors
-- Does NOT sum across countries, preserving the full country-pair structure
-- Example: For USA's A sector (A01, A03), includes flows:
-  * USA A01 → USA A01, USA A03
-  * USA A01 → ROW A01, ROW A03
-  * USA A03 → USA A01, USA A03
-  * USA A03 → ROW A01, ROW A03
+### G Block
+The G block contains technical coefficients between subsectors. When extracting the G block:
+- The source sector (sector_n) must be specified as a (country, sector) tuple
+- The target sectors must be specified as a list of (country, sector) tuples
+- The block will have dimensions based on the number of subsectors specified
 
 ### Vector Blocks Module
 
