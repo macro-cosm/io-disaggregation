@@ -6,10 +6,13 @@ This module provides functionality to:
 3. Convert vectors back to block form (for reconstruction)
 
 IMPORTANT: When working with multi-region IO tables (like ICIO), all block operations
-handle flows across ALL countries. For example:
-- E block includes flows FROM undisaggregated sectors in all countries
-- F block includes flows TO undisaggregated sectors in all countries
-- G block includes flows between subsectors, considering all country pairs
+handle technical coefficients across ALL countries. For example:
+- E block includes technical coefficients FROM undisaggregated sectors in all countries
+- F block includes technical coefficients TO undisaggregated sectors in all countries
+- G block includes technical coefficients between subsectors, considering all country pairs
+
+Note: Technical coefficients represent the input requirements per unit of output
+(industry flows divided by industry output), not the flows themselves.
 """
 
 import logging
@@ -123,20 +126,18 @@ def flatten_G_block(G: pd.DataFrame, k_n: int, k_l: list[int]) -> Array:
     # So the total number of columns should be sum(k_l) * num_countries
     expected_cols = sum(k_l)
     if G.shape[0] != k_n:
-        raise ValueError(f"G block should have shape ({k_n}, N), got {G.shape}")
-    if G.shape[1] % expected_cols != 0:
-        raise ValueError(
-            f"G block should have number of columns divisible by {expected_cols}, got {G.shape[1]}"
-        )
+        raise ValueError(f"G block should have shape ({k_n}, {expected_cols}), got {G.shape}")
+    if G.shape[1] != expected_cols:
+        raise ValueError(f"G block should have {expected_cols} columns, got {G.shape[1]}")
 
-    num_countries = G.shape[1] // expected_cols
-    logger.debug(f"G block has {num_countries} countries")
-    logger.debug(f"G block shape: {G.shape}")
+    logger.debug(f"G block shape before flattening: {G.shape}")
     logger.debug(f"k_n: {k_n}, k_l: {k_l}")
+    logger.debug(f"Expected columns: {expected_cols}")
 
-    # For multi-region tables, we need to keep the country dimension
-    # So we just flatten the entire array as is
-    return G.values.flatten(order="C")
+    # Flatten row by row (C-order)
+    G_flat = G.values.flatten(order="C")
+    logger.debug(f"G block shape after flattening: {G_flat.shape}")
+    return G_flat
 
 
 # Vector → Block (Reshaping) Operations
@@ -229,25 +230,33 @@ def extract_E_block(
     reader: ICIOReader,
     undisaggregated_sectors: list[str],
     disaggregated_sectors: list[str],
+    target_country: str,
 ) -> pd.DataFrame:
     """Extract the E block from a disaggregated table.
 
     For multi-region tables:
-    - This block contains flows FROM all undisaggregated sectors in ALL countries
-      TO the disaggregated sector's subsectors in the target country (USA).
+    - This block contains technical coefficients FROM all undisaggregated sectors
+      in ALL countries TO the disaggregated sector's subsectors in the target country.
     - Shape will be (N_u * N_c, k_n) where:
         * N_u is the number of undisaggregated sectors
         * N_c is the number of countries
         * k_n is the number of subsectors for the disaggregated sector
 
+    Note: Technical coefficients represent input requirements per unit of output,
+    not the raw flows between sectors.
+
     Args:
         reader: ICIOReader instance
         undisaggregated_sectors: List of sector codes that are not being disaggregated
         disaggregated_sectors: List of subsector codes for the sector being disaggregated
+        target_country: Country where the sector is being disaggregated
 
     Returns:
-        DataFrame with flows from undisaggregated sectors to subsectors
+        DataFrame with technical coefficients from undisaggregated sectors to subsectors
     """
+    if target_country not in reader.countries:
+        raise ValueError(f"Target country {target_country} not found in data")
+
     tech_coef = reader.technical_coefficients
 
     # Create indices for undisaggregated sectors (all countries)
@@ -256,7 +265,7 @@ def extract_E_block(
     )
     # For disaggregated sectors, we only want the target country
     col_idx = pd.MultiIndex.from_product(
-        [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
+        [[target_country], disaggregated_sectors], names=["CountryInd", "industryInd"]
     )
 
     # Extract block
@@ -269,11 +278,12 @@ def extract_F_block(
     reader: ICIOReader,
     undisaggregated_sectors: list[str],
     disaggregated_sectors: list[str],
+    target_country: str,
 ) -> pd.DataFrame:
     """Extract the F block from a disaggregated table.
 
     For multi-region tables:
-    - This block contains flows FROM the disaggregated sector's subsectors in the target country (USA)
+    - This block contains flows FROM the disaggregated sector's subsectors in the target country
       TO all undisaggregated sectors in ALL countries.
     - Shape will be (k_n, N_u * N_c) where:
         * k_n is the number of subsectors for the disaggregated sector
@@ -284,15 +294,19 @@ def extract_F_block(
         reader: ICIOReader instance
         undisaggregated_sectors: List of sector codes that are not being disaggregated
         disaggregated_sectors: List of subsector codes for the sector being disaggregated
+        target_country: Country where the sector is being disaggregated
 
     Returns:
         DataFrame with flows from subsectors to undisaggregated sectors
     """
+    if target_country not in reader.countries:
+        raise ValueError(f"Target country {target_country} not found in data")
+
     tech_coef = reader.technical_coefficients
 
     # For disaggregated sectors, we only want the target country
     row_idx = pd.MultiIndex.from_product(
-        [["USA"], disaggregated_sectors], names=["CountryInd", "industryInd"]
+        [[target_country], disaggregated_sectors], names=["CountryInd", "industryInd"]
     )
     # Create indices for undisaggregated sectors (all countries)
     col_idx = pd.MultiIndex.from_product(
@@ -309,11 +323,12 @@ def extract_G_block(
     reader: ICIOReader,
     sector_n: list[str],
     sectors_l: list[list[str]],
+    source_country: str,
 ) -> pd.DataFrame:
     """Extract the G block from a disaggregated table.
 
     For multi-region tables:
-    - This block contains flows FROM the disaggregated sector n's subsectors in the target country (USA)
+    - This block contains flows FROM the disaggregated sector n's subsectors in the source country
       TO all subsectors of all sectors ℓ in ALL countries.
     - Each G^{nℓ} represents flows from sector n's subsectors to sector ℓ's subsectors
     - Shape will be (k_n, sum(k_ℓ) * N_c) where:
@@ -325,14 +340,29 @@ def extract_G_block(
         reader: ICIOReader instance
         sector_n: List of subsector codes for sector n
         sectors_l: List of lists of subsector codes for each sector ℓ
+        source_country: Country where sector n is being disaggregated
 
     Returns:
         DataFrame with flows between subsectors across all country pairs
+
+    Raises:
+        ValueError: If no sectors are provided
+        KeyError: If any sector code is not found in the data
     """
+    if not sector_n:
+        raise ValueError("At least one subsector required for sector n")
+    if not sectors_l or not any(sectors_l):
+        raise ValueError("At least one sector required for sectors_l")
+
+    if source_country not in reader.countries:
+        raise ValueError(f"Source country {source_country} not found in data")
+
     tech_coef = reader.technical_coefficients
 
-    # For sector n's subsectors, we only want the target country
-    row_idx = pd.MultiIndex.from_product([["USA"], sector_n], names=["CountryInd", "industryInd"])
+    # For sector n's subsectors, we only want the source country
+    row_idx = pd.MultiIndex.from_product(
+        [[source_country], sector_n], names=["CountryInd", "industryInd"]
+    )
 
     # For sectors ℓ, we want all countries
     # Flatten the list of lists to get all subsector codes
@@ -343,7 +373,10 @@ def extract_G_block(
 
     # Extract block
     G = tech_coef.loc[row_idx, col_idx]
-    logger.debug(f"Extracted G block with shape {G.shape}")
+    logger.debug(
+        f"Extracted G block with shape {G.shape} "
+        f"from {source_country}-{sector_n} to all countries-{all_subsectors}"
+    )
     return G
 
 
@@ -379,15 +412,18 @@ def blocks_to_vector(
     logger.info(f"Countries in reader: {reader.countries}")
 
     # Extract blocks using the new ICIOReader methods
-    E = extract_E_block(reader, undisaggregated, sectors_to_disaggregate)
-    F = extract_F_block(reader, undisaggregated, sectors_to_disaggregate)
-    G = extract_G_block(reader, sectors_to_disaggregate, [sectors_to_disaggregate])
+    E = extract_E_block(reader, undisaggregated, sectors_to_disaggregate, reader.countries[0])
+    F = extract_F_block(reader, undisaggregated, sectors_to_disaggregate, reader.countries[0])
+    G = extract_G_block(
+        reader, sectors_to_disaggregate, [sectors_to_disaggregate], reader.countries[0]
+    )
 
     # Get dimensions
     N_K = len(undisaggregated) * len(reader.countries)
     k_n = len(sectors_to_disaggregate)
     k_l = [k_n]  # For this case, only one sector is being disaggregated
-    logger.info(f"Dimensions: N_K={N_K}, k_n={k_n}, k_l={k_l}")
+    N_c = len(reader.countries)  # Get number of countries from reader
+    logger.info(f"Dimensions: N_K={N_K}, k_n={k_n}, k_l={k_l}, N_c={N_c}")
     logger.info(f"Block shapes: E={E.shape}, F={F.shape}, G={G.shape}")
 
     # Flatten blocks
@@ -418,6 +454,7 @@ def vector_to_blocks(
     N_K: int,
     k_n: int,
     k_l: list[int],
+    N_c: int | None = None,
 ) -> tuple[Array, Array, Array, Array]:
     """
     Convert a flattened vector back to technical coefficient blocks.
@@ -437,18 +474,25 @@ def vector_to_blocks(
         N_K: Number of undisaggregated sectors across all countries (N_u * N_c)
         k_n: Number of subsectors for sector n
         k_l: List of numbers of subsectors for each sector l
+        N_c: Number of countries. If None, will be derived from G block size.
 
     Returns:
         Tuple of (E, F, G, b) arrays in their original block forms
     """
-    # Calculate number of countries from N_K
-    N_u = N_K // 3  # Since we know there are 3 countries in the sample data
-    N_c = 3  # Hardcoded for now, but should be passed in or derived
-
     # Calculate component sizes
     E_size = N_K * k_n
     F_size = N_K * k_n
-    G_size = k_n * sum(k_l) * N_c  # Account for countries in G block
+
+    # Get number of countries from G block size if not provided
+    if N_c is None:
+        # G block size = k_n * sum(k_l) * N_c
+        # So N_c = G_size / (k_n * sum(k_l))
+        G_size = len(X_n) - E_size - F_size - k_n  # Subtract E, F and b sizes
+        N_c = G_size // (k_n * sum(k_l))
+        logger.info(f"Derived N_c={N_c} from G block size")
+    else:
+        G_size = k_n * sum(k_l) * N_c
+
     b_size = k_n
     expected_len = E_size + F_size + G_size + b_size
 
