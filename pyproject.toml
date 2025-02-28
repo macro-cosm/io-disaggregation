@@ -50,7 +50,7 @@ ensure_newline_before_comments = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=disag_tools --cov-report=term-missing"
+#addopts = "-v --cov=disag_tools --cov-report=term-missing"
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",
