@@ -8,23 +8,12 @@ known data.
 import numpy as np
 import pytest
 
-from disag_tools.disaggregation.constraints import (
-    generate_M1_block,
-    generate_M2_block,
-    generate_M3_block,
-    generate_M4_block,
-    generate_M5_block,
-)
 from disag_tools.readers.disaggregation_blocks import (
-    DisaggregationBlocks,
     DisaggregatedBlocks,
+    DisaggregationBlocks,
     unfold_countries,
 )
 from disag_tools.readers.icio_reader import ICIOReader
-from disag_tools.vector_blocks import (
-    flatten_F_block,
-    flatten_G_block,
-)
 
 
 @pytest.fixture(scope="session")
@@ -54,7 +43,7 @@ def disaggregated_blocks(usa_reader: ICIOReader):
     return disaggregated_blocks
 
 
-def test_E_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIOReader):
+def test_m1_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIOReader):
     """Test the equation for the E block (flows from undisaggregated to disaggregated sectors).
 
     The equation states that:
@@ -167,3 +156,150 @@ def test_G_block_equation(aggregated_blocks, disaggregated_blocks, n):
     # test M3 G = D
     result = M3 @ g
     assert result == pytest.approx(D, rel=1e-1), f"M3G ≠ D: Equation does not hold for n={n}"
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_m5_eqn(aggregated_blocks, disaggregated_blocks, n):
+    # generate F BLOCK
+    aggregated_sectors = disaggregated_blocks.aggregated_sectors_list[n - 1]
+    disaggregated_sectors = disaggregated_blocks.sector_mapping[aggregated_sectors]
+
+    indices = [
+        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        for sector in disaggregated_sectors
+    ]
+    disaggregated_sectors = [disaggregated_blocks.disaggregated_sector_names[i] for i in indices]
+
+    F = disaggregated_blocks.reordered_matrix.loc[
+        disaggregated_sectors, disaggregated_blocks.non_disaggregated_sector_names
+    ].values
+
+    # get the x_j/z_n vector
+    sector_n = aggregated_blocks.disaggregated_sector_names[n - 1]
+    x_j = aggregated_blocks.output.loc[aggregated_blocks.non_disaggregated_sector_names].values
+    z_n = aggregated_blocks.output.loc[sector_n]
+    weights_vector = x_j / z_n
+
+    result = F @ weights_vector
+
+    M5 = aggregated_blocks.get_m5_block(n)
+    F_flat = disaggregated_blocks.get_f_vector(n)
+    result2 = M5 @ F_flat
+
+    assert result == pytest.approx(result2, rel=1e-2), f"M5F ≠ Fw: Equation does not hold for n={n}"
+
+
+@pytest.mark.parametrize("n, l", [(1, 1), (1, 2), (2, 1), (2, 2)])
+def test_m4_nl_eqn(aggregated_blocks, disaggregated_blocks, n, l):
+    # generate G BLOCK
+    aggregated_sector_n = disaggregated_blocks.aggregated_sectors_list[n - 1]
+    aggregated_sector_l = disaggregated_blocks.aggregated_sectors_list[l - 1]
+
+    disaggregated_sectors_n = disaggregated_blocks.sector_mapping[aggregated_sector_n]
+    disaggregated_sectors_l = disaggregated_blocks.sector_mapping[aggregated_sector_l]
+
+    indices_n = [
+        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        for sector in disaggregated_sectors_n
+    ]
+
+    indices_l = [
+        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        for sector in disaggregated_sectors_l
+    ]
+
+    disaggregated_sectors_n = [
+        disaggregated_blocks.disaggregated_sector_names[i] for i in indices_n
+    ]
+    disaggregated_sectors_l = [
+        disaggregated_blocks.disaggregated_sector_names[i] for i in indices_l
+    ]
+
+    gnl = disaggregated_blocks.reordered_matrix.loc[
+        disaggregated_sectors_n, disaggregated_sectors_l
+    ].values
+
+    weights = disaggregated_blocks.get_relative_output_weights(l)
+
+    output_n = aggregated_blocks.output.loc[aggregated_sector_n]
+    output_l = aggregated_blocks.output.loc[aggregated_sector_l]
+    ratio = output_l / output_n
+
+    result = ratio * gnl @ weights
+
+    M4_nl = aggregated_blocks.get_m4_nl_block(n, l, weights)
+    gnl_vector = disaggregated_blocks.get_gnl_vector(n, l)
+
+    result2 = M4_nl @ gnl_vector
+
+    assert result == pytest.approx(
+        result2, rel=1e-2
+    ), f"M4G ≠ Gw: Equation does not hold for n={n}, l={l}"
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_g_vector_sum(aggregated_blocks, disaggregated_blocks, n):
+    results = [
+        aggregated_blocks.get_m4_nl_block(n, l, disaggregated_blocks.get_relative_output_weights(l))
+        @ disaggregated_blocks.get_gnl_vector(n, l)
+        for l in range(1, disaggregated_blocks.m + 1)
+    ]
+    result = sum(results)
+
+    relative_output_weights = [
+        disaggregated_blocks.get_relative_output_weights(l + 1)
+        for l in range(disaggregated_blocks.m)
+    ]
+
+    M4 = aggregated_blocks.get_m4_block(n, relative_output_weights)
+    g = disaggregated_blocks.get_gn_vector(n)
+
+    assert result == pytest.approx(
+        M4 @ g, rel=1e-2
+    ), f"Sum of M4G ≠ M4G: Equation does not hold for n={n}"
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_final_demand_block_equation(aggregated_blocks, disaggregated_blocks, n):
+    """Test the equation for the final demand block.
+
+    The equation states that:
+    M_5 F + M_4 G + b = w
+
+    where b is the (rescaled) final demand vector, and w is the relative outputs vector.
+    """
+    f = disaggregated_blocks.get_f_vector(n)
+    g = disaggregated_blocks.get_gn_vector(n)
+    b = disaggregated_blocks.get_bn_vector(n)
+    w = disaggregated_blocks.get_relative_output_weights(n)
+
+    relative_output_weights = [
+        disaggregated_blocks.get_relative_output_weights(l + 1)
+        for l in range(disaggregated_blocks.m)
+    ]
+
+    M4 = aggregated_blocks.get_m4_block(n, relative_output_weights)
+    M5 = aggregated_blocks.get_m5_block(n)
+
+    result = M5 @ f + M4 @ g + b
+
+    assert result == pytest.approx(
+        w, rel=1e-2
+    ), f"M5F + M4G + b ≠ w: Equation does not hold for n={n}"
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_large_equation(aggregated_blocks, disaggregated_blocks, n):
+    relative_output_weights = [
+        disaggregated_blocks.get_relative_output_weights(l + 1)
+        for l in range(disaggregated_blocks.m)
+    ]
+    large_m = aggregated_blocks.get_large_m(n, relative_output_weights)
+
+    x_n = disaggregated_blocks.get_xn_vector(n)
+
+    result = large_m @ x_n
+
+    result2 = aggregated_blocks.get_y_vector(n, disaggregated_blocks.get_relative_output_weights(n))
+
+    assert result == pytest.approx(result2, rel=1e-2), f"Large equation does not hold for n={n}"

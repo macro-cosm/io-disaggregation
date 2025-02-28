@@ -7,7 +7,12 @@ from typing import NamedTuple, TypeAlias
 import numpy as np
 import pandas as pd
 
-from disag_tools.disaggregation.constraints import generate_M1_block, generate_M2_block
+from disag_tools.disaggregation.constraints import (
+    generate_M1_block,
+    generate_M2_block,
+    generate_M4_block,
+    generate_M5_block,
+)
 from disag_tools.readers.icio_reader import ICIOReader
 
 # Type alias for sector identifiers - can be just str for single-region tables
@@ -48,34 +53,53 @@ class SectorInfo(NamedTuple):
 
 @dataclass
 class DisaggregationBlocks:
-    """
-    Class to handle the block structure of a disaggregation problem.
+    """Class to handle the block structure of a disaggregation problem.
 
-    This class maintains the mapping between sector indices (n) and their
-    codes/names, and provides methods to access the various blocks (A₀, B^n, etc.)
-    in the mathematical formulation.
+    This class works with sectors that are ABOUT TO BE disaggregated. It takes a technical
+    coefficients matrix where sectors are still in their aggregated form and uses sectors_info
+    to specify how each sector should be split into subsectors.
 
-    The class is generic and works with both:
-    - Single-region IO tables (sectors identified by sector code)
-    - Multi-region IO tables (sectors identified by country-sector pairs)
+    For example, if you want to split sector AGR into 3 subsectors:
+    ```python
+    sectors_info = [("AGR", "Agriculture", 3)]
+    blocks = DisaggregationBlocks.from_technical_coefficients(tech_coef, sectors_info, output)
+    ```
+
+    The matrix is organized into blocks that represent different relationships:
+    ```
+    [A₀    B¹  B²  ... Bᵏ ]
+    [C¹    D¹¹ D¹² ... D¹ᵏ]
+    [C²    D²¹ D²² ... D²ᵏ]
+    [...   ... ... ... ...]
+    [Cᵏ    Dᵏ¹ ... ... Dᵏᵏ]
+    ```
+
+    Where:
+    - A₀: Technical coefficients between undisaggregated sectors
+    - Bⁿ: Technical coefficients from undisaggregated to sector n
+    - Cⁿ: Technical coefficients from sector n to undisaggregated
+    - Dⁿˡ: Technical coefficients between sectors n and l
 
     Attributes:
         sectors: List of sectors being disaggregated, with their indices
         disaggregated_sector_names: List of sector codes/names being disaggregated
         non_disaggregated_sector_names: List of sector codes/names not being disaggregated
         reordered_matrix: The reordered technical coefficients matrix
+        output: Output values for all sectors
     """
 
     sectors: list[SectorInfo]
     disaggregated_sector_names: list[str | tuple[str, str]]
     non_disaggregated_sector_names: list[str | tuple[str, str]]
     reordered_matrix: pd.DataFrame
+    output: pd.Series
 
     @classmethod
     def from_technical_coefficients(
         cls,
         tech_coef: pd.DataFrame,
         sectors_info: list[tuple[SectorId, str, int]],
+        output: pd.Series,
     ) -> "DisaggregationBlocks":
         """Create DisaggregationBlocks from a technical coefficients matrix.
 
@@ -85,6 +109,7 @@ class DisaggregationBlocks:
                 - sector_id is a sector identifier (str for single region, tuple for multi)
                 - name is a human-readable name
                 - k is the number of subsectors to split into
+            output: Output vector for all  sectors
 
         Returns:
             DisaggregationBlocks instance with reordered matrix and sector info
@@ -187,6 +212,8 @@ class DisaggregationBlocks:
                 for i, s_id in enumerate(disaggregated)
             ]
 
+        reordered_outputs = output.loc[new_order]
+
         # Filter out special rows/columns from tech_coef before reindexing
         filtered_tech_coef = tech_coef.loc[new_order, new_order]
         return cls(
@@ -194,6 +221,7 @@ class DisaggregationBlocks:
             reordered_matrix=filtered_tech_coef,
             disaggregated_sector_names=disaggregated,
             non_disaggregated_sector_names=undisaggregated,
+            output=reordered_outputs,
         )
 
     @property
@@ -230,16 +258,25 @@ class DisaggregationBlocks:
         return sum(s.k for s in self.sectors)
 
     def get_A0(self) -> np.ndarray:
-        """Get the A₀ block (undisaggregated sectors)."""
+        """Get the A₀ block (technical coefficients between undisaggregated sectors).
+
+        Returns:
+            Array of shape (N-K, N-K) where:
+            - N is the total number of sectors
+            - K is the number of sectors being disaggregated
+        """
         N_K = self.N - self.K
         return self.reordered_matrix.iloc[:N_K, :N_K].values
 
     def get_B(self, n: int) -> np.ndarray:
-        """
-        Get the B^n block (undisaggregated to sector n).
+        """Get the B^n block (technical coefficients from undisaggregated to sector n).
 
         Args:
             n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array of shape (N-K,) representing input requirements from undisaggregated
+            sectors to sector n
         """
         if not 1 <= n <= self.K:
             raise ValueError(f"Sector index {n} out of range [1, {self.K}]")
@@ -258,11 +295,14 @@ class DisaggregationBlocks:
         return B.values
 
     def get_C(self, n: int) -> np.ndarray:
-        """
-        Get the C^n block (sector n to undisaggregated).
+        """Get the C^n block (technical coefficients from sector n to undisaggregated).
 
         Args:
             n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array of shape (N-K,) representing input requirements from sector n
+            to undisaggregated sectors
         """
         if not 1 <= n <= self.K:
             raise ValueError(f"Sector index {n} out of range [1, {self.K}]")
@@ -281,12 +321,14 @@ class DisaggregationBlocks:
         return C
 
     def get_D_nl(self, n: int, l: int) -> float:
-        """
-        Get the D^{nℓ} block (sector n to sector ℓ).
+        """Get the D^{nℓ} block (technical coefficients between sectors n and ℓ).
 
         Args:
             n: Index of the first sector (1-based as in math notation)
             l: Index of the second sector (1-based as in math notation)
+
+        Returns:
+            Technical coefficient representing input requirements from sector n to sector ℓ
         """
         if not 1 <= n <= self.K:
             raise ValueError(f"First sector index {n} out of range [1, {self.K}]")
@@ -300,7 +342,31 @@ class DisaggregationBlocks:
         return self.reordered_matrix.loc[sector_n, sector_l]  # noqa
 
     def get_D(self, n: int) -> np.ndarray:
+        """Get all D blocks for sector n (technical coefficients to all other disaggregated sectors).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array containing technical coefficients from sector n to all other disaggregated sectors
+        """
         return np.array([self.get_D_nl(n, l) for l in range(1, self.K + 1)])
+
+    def get_y_vector(self, n: int, relative_weights: np.ndarray) -> np.ndarray:
+        """Get the y vector for sector n, combining B, C, D vectors and relative weights.
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+            relative_weights: Array of relative weights for the subsectors
+
+        Returns:
+            Array containing concatenated [B, C, D, relative_weights] vectors
+        """
+        # get B, C, D vectors
+        B = self.get_B(n)
+        C = self.get_C(n)
+        D = self.get_D(n)
+        return np.concatenate([B, C, D, relative_weights])
 
     def get_sector_info(self, n: int) -> SectorInfo:
         """
@@ -314,19 +380,54 @@ class DisaggregationBlocks:
         return self.sectors[n - 1]
 
     def get_m1_block(self, n: int, relative_weights: np.ndarray) -> np.ndarray:
+        """Get the M₁ block for sector n (weights for technical coefficients from undisaggregated sectors).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+            relative_weights: Array of relative weights for the subsectors
+
+        Returns:
+            Array representing the M₁ constraint matrix block
+        """
         k = self.sectors[n - 1].k
         return generate_M1_block(len(self.non_disaggregated_sector_names), k, relative_weights)
 
     def get_m2_block(self, n: int) -> np.ndarray:
+        """Get the M₂ block for sector n (sum preservation for technical coefficients).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array representing the M₂ constraint matrix block
+        """
         k = self.sectors[n - 1].k
         return generate_M2_block(len(self.non_disaggregated_sector_names), k)
 
     def get_m3_nl_block(self, n: int, weights_l: np.ndarray) -> np.ndarray:
+        """Get the M₃ block for sectors n and l (cross-sector weight constraints).
+
+        Args:
+            n: Index of the first sector (1-based as in math notation)
+            weights_l: Array of weights for sector l's subsectors
+
+        Returns:
+            Array representing the M₃ constraint matrix block for sectors n and l
+        """
         # repeat weights_l k_n times
         k_n = self.sectors[n - 1].k
         return np.array(list(weights_l) * k_n)
 
     def get_m3_block(self, n: int, relative_weights: list[np.ndarray]) -> np.ndarray:
+        """Get the complete M₃ block for sector n (all cross-sector weight constraints).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+            relative_weights: List of weight arrays for each sector's subsectors
+
+        Returns:
+            Array representing the complete M₃ constraint matrix block
+        """
         k = self.sectors[n - 1].k
         n_cols = sum(len(w) * k for w in relative_weights)
         m3 = np.zeros((k, n_cols))
@@ -337,23 +438,146 @@ class DisaggregationBlocks:
             col_index += len(block)
         return m3
 
+    def get_m4_nl_block(self, n: int, l: int, weights_l: np.ndarray) -> np.ndarray:
+        """Get the M₄ block for sectors n and l (output-scaled weight constraints).
+
+        Args:
+            n: Index of the first sector (1-based as in math notation)
+            l: Index of the second sector (1-based as in math notation)
+            weights_l: Array of weights for sector l's subsectors
+
+        Returns:
+            Array representing the M₄ constraint matrix block for sectors n and l,
+            scaled by the ratio of sector outputs
+        """
+        n_l = len(weights_l)
+        output_n = self.output.loc[self.disaggregated_sector_names[n - 1]]
+        output_l = self.output.loc[self.disaggregated_sector_names[l - 1]]
+        output_ratio = output_l / output_n
+        m4 = np.zeros((self.sectors[n - 1].k, n_l * self.sectors[n - 1].k))
+        for i in range(self.sectors[n - 1].k):
+            m4[i, i * n_l : (i + 1) * n_l] = weights_l
+        return m4 * output_ratio
+
+    def get_m4_block(self, n: int, relative_weights: list[np.ndarray]) -> np.ndarray:
+        """Get the complete M₄ block for sector n (all output-scaled weight constraints).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+            relative_weights: List of weight arrays for each sector's subsectors
+
+        Returns:
+            Array representing the complete M₄ constraint matrix block
+        """
+        m4_list = [
+            self.get_m4_nl_block(n, l + 1, weights_l)
+            for l, weights_l in enumerate(relative_weights)
+        ]
+        return np.concatenate(m4_list, axis=1)
+
+    def get_m5_block(self, n: int) -> np.ndarray:
+        """Get the M₅ block for sector n (final demand consistency constraints).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array representing the M₅ constraint matrix block
+        """
+        m5 = generate_M5_block(
+            k_n=self.sectors[n - 1].k,
+            x=self.output.loc[self.non_disaggregated_sector_names].values,
+            z_n=self.output.loc[self.disaggregated_sector_names[n - 1]],
+        )
+        return m5
+
+    def get_large_m(self, n: int, relative_weights: list[np.ndarray]) -> np.ndarray:
+        """Get the complete constraint matrix M for sector n.
+
+        This matrix combines all constraint blocks (M₁ through M₅) into a single large
+        constraint matrix used in the optimization problem.
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+            relative_weights: List of weight arrays for each sector's subsectors
+
+        Returns:
+            Array representing the complete constraint matrix M
+        """
+        m1 = self.get_m1_block(n, relative_weights[n - 1])
+        m2 = self.get_m2_block(n)
+        m3 = self.get_m3_block(n, relative_weights)
+        m4 = self.get_m4_block(n, relative_weights)
+        m5 = self.get_m5_block(n)
+        id_block = np.eye(self.sectors[n - 1].k)
+
+        total_columns = m1.shape[1] + m2.shape[1] + m3.shape[1] + self.sectors[n - 1].k
+        total_rows = m1.shape[0] + m2.shape[0] + m3.shape[0] + self.sectors[n - 1].k
+
+        large_m = np.zeros((total_rows, total_columns))
+
+        # Assemble the blocks into the large matrix
+        col_counter, row_counter = 0, 0
+        large_m[
+            row_counter : row_counter + m1.shape[0], col_counter : col_counter + m1.shape[1]
+        ] = m1
+        col_counter += m1.shape[1]
+        row_counter += m1.shape[0]
+        large_m[
+            row_counter : row_counter + m2.shape[0], col_counter : col_counter + m2.shape[1]
+        ] = m2
+        col_counter += m2.shape[1]
+        row_counter += m2.shape[0]
+        large_m[
+            row_counter : row_counter + m3.shape[0], col_counter : col_counter + m3.shape[1]
+        ] = m3
+
+        row_counter += m3.shape[0]
+
+        col_counter = m1.shape[1]
+        large_m[
+            row_counter : row_counter + self.sectors[n - 1].k,
+            col_counter : col_counter + m2.shape[1],
+        ] = m5
+        col_counter += m2.shape[1]
+        large_m[
+            row_counter : row_counter + self.sectors[n - 1].k,
+            col_counter : col_counter + m3.shape[1],
+        ] = m4
+        col_counter += m3.shape[1]
+
+        large_m[
+            row_counter : row_counter + self.sectors[n - 1].k,
+            col_counter : col_counter + self.sectors[n - 1].k,
+        ] = id_block
+
+        return large_m
+
 
 class DisaggregatedBlocks(DisaggregationBlocks):
-    """Class to handle the block structure of a disaggregated problem.
+    """Class to handle the block structure of an already disaggregated problem.
 
-    This class maintains the mapping between aggregated and disaggregated sectors,
-    and provides methods to access the various blocks (E, F, G) in the
-    mathematical formulation.
+    This class works with sectors that are ALREADY disaggregated in the input data.
+    It takes a technical coefficients matrix that already contains the disaggregated sectors
+    and uses sector_mapping to specify which subsectors belong to which aggregated sector.
 
-    For example, if sector A is disaggregated into A01 and A03:
-    - The input technical coefficients matrix will have A01 and A03 (not A)
-    - We specify the mapping A -> [A01, A03]
-    - The class handles creating this mapping for all countries in the data
+    For example, if A01 and A03 are already separate sectors in your data:
+    ```python
+    sector_mapping = {"A": ["A01", "A03"]}
+    blocks = DisaggregatedBlocks.from_reader(reader, sector_mapping)
+    ```
+
+    The class provides methods to access the E, F, G blocks which represent:
+    - E block: Technical coefficients from undisaggregated to disaggregated sectors
+    - F block: Technical coefficients from disaggregated to undisaggregated sectors
+    - G block: Technical coefficients between disaggregated sectors
+    - b block: Final demand for disaggregated sectors
 
     Attributes:
         sector_mapping: Dictionary mapping aggregated sectors to their disaggregated subsectors
             e.g. {("USA", "A"): [("USA", "A01"), ("USA", "A03")]}
         aggregated_sectors_list: List of aggregated sectors in order
+        m: Total number of subsectors
     """
 
     sector_mapping: dict[tuple[str, str], list[tuple[str, str]]]
@@ -377,15 +601,15 @@ class DisaggregatedBlocks(DisaggregationBlocks):
             reordered_matrix=reordered_matrix,
             disaggregated_sector_names=disaggregated_sector_names,
             non_disaggregated_sector_names=non_disaggregated_sector_names,
+            output=output,
         )
         self.sector_mapping = sector_mapping
         self.aggregated_sectors_list = aggregated_sectors_list
         self.m = m
         self.final_demand = final_demand
-        self.output = output
 
     @classmethod
-    def from_technical_coefficients(
+    def from_reader(
         cls,
         reader: ICIOReader,
         sector_mapping: dict[str, list[str]],
@@ -406,7 +630,9 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         full_mapping, sectors_info = get_sectors_info(reader.countries, sector_mapping)
 
         # Create base DisaggregationBlocks instance
-        blocks = DisaggregationBlocks.from_technical_coefficients(tech_coef, sectors_info)
+        blocks = DisaggregationBlocks.from_technical_coefficients(
+            tech_coef, sectors_info, output=reader.output_from_out
+        )
 
         # Create ordered list of aggregated sectors
         aggregated_sectors_list = sorted(list(full_mapping.keys()))
@@ -427,6 +653,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         # Rescale final demand by total output
         final_demand = final_demand / total_output
 
+        output = reader.output_from_out.loc[blocks.reordered_matrix.index]
+
         # Return DisaggregatedBlocks instance
         return cls(
             sectors=blocks.sectors,
@@ -441,6 +669,15 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         )
 
     def get_e_vector(self, n: int) -> np.ndarray:
+        """Get the E block for sector n (technical coefficients from undisaggregated sectors).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array containing technical coefficients from all undisaggregated sectors
+            to the subsectors of sector n
+        """
         # get the sector name
         aggregated_sector = self.aggregated_sectors_list[n - 1]
         # get the disaggregated sectors
@@ -462,6 +699,15 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         return E
 
     def get_f_vector(self, n: int) -> np.ndarray:
+        """Get the F block for sector n (technical coefficients to undisaggregated sectors).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array containing technical coefficients from the subsectors of sector n
+            to all undisaggregated sectors
+        """
         # get the sector name
         aggregated_sector = self.aggregated_sectors_list[n - 1]
         # get the disaggregated sectors
@@ -483,6 +729,16 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         return F
 
     def get_gnl_vector(self, n: int, l: int) -> np.ndarray:
+        """Get the G block for sectors n and l (technical coefficients between their subsectors).
+
+        Args:
+            n: Index of the first sector (1-based as in math notation)
+            l: Index of the second sector (1-based as in math notation)
+
+        Returns:
+            Array containing technical coefficients from subsectors of sector n to
+            subsectors of sector l, flattened in row-major order
+        """
         # get the sector name
         aggregated_sector_n = self.aggregated_sectors_list[n - 1]
         aggregated_sector_l = self.aggregated_sectors_list[l - 1]
@@ -506,11 +762,28 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         return gnl.flatten()
 
     def get_gn_vector(self, n: int):
+        """Get the G block for sector n (technical coefficients between subsectors).
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array containing technical coefficients from the subsectors of sector n
+            to all other subsectors
+        """
         gnls = [self.get_gnl_vector(n, l) for l in range(1, self.m + 1)]
 
         return np.concatenate(gnls)
 
     def get_bn_vector(self, n: int) -> np.ndarray:
+        """Get the final demand block for sector n.
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array containing final demand values for the subsectors of sector n
+        """
         # final demand for the disaggregated sectors
         aggregated_sector = self.aggregated_sectors_list[n - 1]
         # get the disaggregated sectors
@@ -525,6 +798,20 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         return bn
 
     def get_xn_vector(self, n: int) -> np.ndarray:
+        """Get the complete solution vector for sector n.
+
+        This combines all components of the solution vector:
+        - E block: Technical coefficients from undisaggregated to subsectors of n
+        - F block: Technical coefficients from subsectors of n to undisaggregated
+        - G block: Technical coefficients from subsectors of n to all other subsectors
+        - b block: Final demand for subsectors of n
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array containing the concatenated [E, F, G, b] vectors for sector n
+        """
         # get E, F, G, bn
         E = self.get_e_vector(n)
         F = self.get_f_vector(n)
@@ -534,6 +821,18 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         return np.concatenate([E, F, G, bn])
 
     def get_relative_output_weights(self, n: int) -> np.ndarray:
+        """Get relative output weights for subsectors of sector n.
+
+        These weights represent each subsector's share of the total output of sector n.
+        They sum to 1 and are used to ensure technical coefficients are proportional
+        to output shares.
+
+        Args:
+            n: Index of the sector (1-based as in math notation)
+
+        Returns:
+            Array of relative weights (output shares) for each subsector
+        """
         aggregated_sector = self.aggregated_sectors_list[n - 1]
         # get the disaggregated sectors
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
@@ -548,6 +847,23 @@ class DisaggregatedBlocks(DisaggregationBlocks):
 
 
 def get_sectors_info(countries: list[str], sector_mapping: dict[str, list[str]]):
+    """Create sector information for all countries based on sector mapping.
+
+    For multi-region tables, this function creates sector information tuples for each
+    country-sector combination, preserving the mapping between aggregated and
+    disaggregated sectors.
+
+    Args:
+        countries: List of country codes in the table
+        sector_mapping: Dictionary mapping aggregated sector codes to lists of
+            disaggregated sector codes
+
+    Returns:
+        List of tuples (sector_id, name, k) where:
+        - sector_id is a tuple (country, sector) for each country-sector pair
+        - name is the sector name (same as sector code for now)
+        - k is the number of subsectors in the mapping
+    """
     # Create full mapping including all countries
     full_mapping: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for country in countries:
@@ -568,6 +884,24 @@ def get_sectors_info(countries: list[str], sector_mapping: dict[str, list[str]])
 def unfold_countries(
     countries: list[str], sector_mapping: dict[str, list[str]]
 ) -> list[tuple[SectorId, str, int]]:
+    """Create sector information tuples for all country-sector combinations.
+
+    This function expands the sector mapping across all countries, creating
+    sector information tuples that include country codes. For example, if we have
+    countries ["USA", "CAN"] and sector "A" maps to ["A01", "A03"], this will create
+    entries for both ("USA", "A") and ("CAN", "A").
+
+    Args:
+        countries: List of country codes
+        sector_mapping: Dictionary mapping aggregated sector codes to lists of
+            disaggregated sector codes
+
+    Returns:
+        List of tuples (sector_id, name, k) where:
+        - sector_id is a tuple (country, sector) for each country-sector pair
+        - name is the sector name (same as sector code for now)
+        - k is the number of subsectors in the mapping
+    """
     sectors = []
     for sector, disagg_sectors in sector_mapping.items():
         for country in countries:

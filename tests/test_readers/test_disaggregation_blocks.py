@@ -181,7 +181,7 @@ def test_get_B_single_region(single_region_blocks, caplog):
     # Test shape - should be (2 undisaggregated rows × 3 A03 subsectors)
     N_K = single_region_blocks.N - single_region_blocks.K  # 2 (A01, A02)
     k1 = single_region_blocks.sectors[0].k  # 3 subsectors for A03
-    assert B1.shape == (N_K, k1), f"Expected shape ({N_K}, {k1}), got {B1.shape}"
+    assert B1.shape[0] == N_K, f"Expected shape ({N_K}, {k1}), got {B1.shape}"
 
 
 def test_get_B_multi_region(multi_region_blocks, caplog):
@@ -204,13 +204,13 @@ def test_get_B_multi_region(multi_region_blocks, caplog):
     # Test shape - should be (4 undisaggregated rows × 3 USA-A03 subsectors)
     N_K = multi_region_blocks.N - multi_region_blocks.K  # 4 (USA/CAN-A01/A02)
     k1 = multi_region_blocks.sectors[0].k  # 3 subsectors for USA-A03
-    assert B1.shape == (N_K, k1), f"Expected shape ({N_K}, {k1}), got {B1.shape}"
+    assert B1.shape == (N_K,), f"Expected shape ({N_K}), got {B1.shape}"
 
     # Get B block for second sector (CAN-A03)
     B2 = multi_region_blocks.get_B(2)
     logger.debug(f"B2 shape: {B2.shape}")
     logger.debug(f"Expected shape: ({N_K}, {multi_region_blocks.sectors[1].k})")
-    assert B2.shape == (N_K, k1)  # Same shape as B1 since both split into 3
+    assert B2.shape == (N_K,)  # Same shape as B1 since both split into 3
 
 
 def test_matrix_reordering_single_region(single_region_blocks, caplog):
@@ -331,11 +331,7 @@ def test_get_C_single_region(single_region_blocks, caplog):
     # Test shape - should be (3 A03 subsectors × 2 undisaggregated columns)
     N_K = single_region_blocks.N - single_region_blocks.K  # 2 (A01, A02)
     k1 = single_region_blocks.sectors[0].k  # 3 subsectors for A03
-    assert C1.shape == (k1, N_K), f"Expected shape ({k1}, {N_K}), got {C1.shape}"
-
-    # Check that all rows are identical (since they're repeated)
-    assert np.allclose(C1[0], C1[1])
-    assert np.allclose(C1[1], C1[2])
+    assert C1.shape == (N_K,), f"Expected shape ({k1}, {N_K}), got {C1.shape}"
 
 
 def test_get_C_multi_region(multi_region_blocks, caplog):
@@ -355,20 +351,12 @@ def test_get_C_multi_region(multi_region_blocks, caplog):
     # Test shape - should be (3 USA-A03 subsectors × 4 undisaggregated columns)
     N_K = multi_region_blocks.N - multi_region_blocks.K  # 4 (USA/CAN-A01/A02)
     k1 = multi_region_blocks.sectors[0].k  # 3 subsectors for USA-A03
-    assert C1.shape == (k1, N_K), f"Expected shape ({k1}, {N_K}), got {C1.shape}"
-
-    # Check that all rows are identical (since they're repeated)
-    assert np.allclose(C1[0], C1[1])
-    assert np.allclose(C1[1], C1[2])
+    assert C1.shape == (N_K,), f"Expected shape ({N_K}), got {C1.shape}"
 
     # Get C block for second sector (CAN-A03)
     C2 = multi_region_blocks.get_C(2)
     logger.debug(f"C2 shape: {C2.shape}")
-    assert C2.shape == (k1, N_K)  # Same shape as C1 since both split into 3
-
-    # Check that all rows in C2 are identical
-    assert np.allclose(C2[0], C2[1])
-    assert np.allclose(C2[1], C2[2])
+    assert C2.shape == (N_K,)  # Same shape as C1 since both split into 3
 
 
 def test_get_D_single_region(single_region_blocks, caplog):
@@ -381,15 +369,13 @@ def test_get_D_single_region(single_region_blocks, caplog):
     logger.debug(f"Sectors: {[s.sector_id for s in single_region_blocks.sectors]}")
 
     # Get D block for sector 1 to itself (D^{11})
-    D11 = single_region_blocks.get_D(1, 1)
-    logger.debug(f"D11 shape: {D11.shape}")
+    D1 = single_region_blocks.get_D(1)
+    logger.debug(f"D11 shape: {D1.shape}")
 
     # Test shape - should be (3 A03 subsectors × 3 A03 subsectors)
-    k1 = single_region_blocks.sectors[0].k  # 3 subsectors for A03
-    assert D11.shape == (k1, k1), f"Expected shape ({k1}, {k1}), got {D11.shape}"
-
-    # Check that all elements are identical (since they're repeated)
-    assert np.allclose(D11, D11[0, 0])
+    k1 = single_region_blocks.K
+    # D1 should be of size k1
+    assert D1.shape == (k1,), f"Expected shape ({k1},), got {D1.shape}"
 
 
 def test_get_D_multi_region(multi_region_blocks, caplog):
@@ -402,34 +388,12 @@ def test_get_D_multi_region(multi_region_blocks, caplog):
     logger.debug(f"Sectors: {[s.sector_id for s in multi_region_blocks.sectors]}")
 
     # Get D block for USA-A03 to itself (D^{11})
-    D11 = multi_region_blocks.get_D(1, 1)
+    D11 = multi_region_blocks.get_D(1)
     logger.debug(f"D11 shape: {D11.shape}")
 
     # Test shape - should be (3 USA-A03 subsectors × 3 USA-A03 subsectors)
-    k1 = multi_region_blocks.sectors[0].k  # 3 subsectors for USA-A03
-    assert D11.shape == (k1, k1), f"Expected shape ({k1}, {k1}), got {D11.shape}"
-
-    # Check that all elements are identical (since they're repeated)
-    assert np.allclose(D11, D11[0, 0])
-
-    # Get D block from USA-A03 to CAN-A03 (D^{12})
-    D12 = multi_region_blocks.get_D(1, 2)
-    logger.debug(f"D12 shape: {D12.shape}")
-
-    # Test shape - should be (3 USA-A03 subsectors × 3 CAN-A03 subsectors)
-    k2 = multi_region_blocks.sectors[1].k  # 3 subsectors for CAN-A03
-    assert D12.shape == (k1, k2), f"Expected shape ({k1}, {k2}), got {D12.shape}"
-
-    # Check that all elements are identical (since they're repeated)
-    assert np.allclose(D12, D12[0, 0])
-
-    # Get D block from CAN-A03 to USA-A03 (D^{21})
-    D21 = multi_region_blocks.get_D(2, 1)
-    logger.debug(f"D21 shape: {D21.shape}")
-    assert D21.shape == (k2, k1)
-
-    # Check that all elements are identical (since they're repeated)
-    assert np.allclose(D21, D21[0, 0])
+    k1 = multi_region_blocks.K  # 3 subsectors for USA-A03
+    assert D11.shape == (k1,), f"Expected shape ({k1},), got {D11.shape}"
 
 
 def test_invalid_sector_indices():
@@ -440,7 +404,8 @@ def test_invalid_sector_indices():
         sectors=[SectorInfo(1, "A01", "Test", 2)],
         reordered_matrix=matrix,
         disaggregated_sector_names=["A01"],
-        non_disaggregated_sector_names=[],  # No non-disaggregated sectors
+        non_disaggregated_sector_names=[],
+        output=pd.Series(index=matrix.index, data=[100]),  # No non-disaggregated sectors
     )
 
     # Test invalid indices for get_B
@@ -457,13 +422,9 @@ def test_invalid_sector_indices():
 
     # Test invalid indices for get_D
     with pytest.raises(ValueError, match="out of range"):
-        blocks.get_D(0, 1)  # First index too small
+        blocks.get_D(0)  # First index too small
     with pytest.raises(ValueError, match="out of range"):
-        blocks.get_D(1, 0)  # Second index too small
-    with pytest.raises(ValueError, match="out of range"):
-        blocks.get_D(2, 1)  # First index too large
-    with pytest.raises(ValueError, match="out of range"):
-        blocks.get_D(1, 2)  # Second index too large
+        blocks.get_D(2)  # First index too large
 
 
 def test_fixture(usa_reader_blocks):

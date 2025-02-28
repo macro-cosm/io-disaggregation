@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from disag_tools.readers import ICIOReader
-from disag_tools.readers.disaggregation_blocks import DisaggregationBlocks, DisaggregatedBlocks
+from disag_tools.readers.disaggregation_blocks import DisaggregatedBlocks, DisaggregationBlocks
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
