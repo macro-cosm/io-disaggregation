@@ -5,9 +5,15 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
+from disag_tools.configurations import DisaggregationConfig
 from disag_tools.readers import ICIOReader
-from disag_tools.readers.disaggregation_blocks import DisaggregatedBlocks, DisaggregationBlocks
+from disag_tools.readers.disaggregation_blocks import (
+    DisaggregatedBlocks,
+    DisaggregationBlocks,
+    unfold_countries,
+)
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
@@ -32,6 +38,14 @@ def data_dir() -> Path:
 def sector_config_path(data_dir: Path) -> Path:
     """Get the path to the sector disaggregation config file."""
     return data_dir / "sector_disagg_example.yaml"
+
+
+@pytest.fixture(scope="session")
+def real_disag_config(data_dir: Path) -> DisaggregationConfig:
+    with open(data_dir / "test_sector_disagg.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    return DisaggregationConfig(**config_dict)
 
 
 @pytest.fixture(scope="session")
@@ -182,3 +196,30 @@ def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
 @pytest.fixture(scope="session")
 def usa_reader_blocks(usa_reader):
     return DisaggregatedBlocks.from_reader(usa_reader, sector_mapping={"A": ["A01", "A03"]})
+
+
+@pytest.fixture(scope="session")
+def aggregated_blocks(usa_aggregated_reader: ICIOReader):
+    """Get the aggregated blocks for the USA."""
+    sectors_mapping = {"A": ["A01", "A03"]}
+    sectors_info = unfold_countries(usa_aggregated_reader.countries, sectors_mapping)
+    # setup blocks
+    aggregated_blocks = DisaggregationBlocks.from_technical_coefficients(
+        tech_coef=usa_aggregated_reader.technical_coefficients,
+        sectors_info=sectors_info,
+        output=usa_aggregated_reader.output_from_out,
+    )
+
+    return aggregated_blocks
+
+
+@pytest.fixture(scope="session")
+def disaggregated_blocks(usa_reader: ICIOReader):
+    """Get the disaggregated blocks for the USA."""
+    sectors_mapping = {"A": ["A01", "A03"]}
+    # setup blocks
+    disaggregated_blocks = DisaggregatedBlocks.from_reader(
+        reader=usa_reader, sector_mapping=sectors_mapping
+    )
+
+    return disaggregated_blocks

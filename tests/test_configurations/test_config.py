@@ -347,3 +347,12 @@ def test_invalid_sector_weights():
     with pytest.raises(ValidationError) as exc_info:
         CountryConfig(regions=invalid_regions)
     assert "sum to 1" in str(exc_info.value)
+
+
+def test_read_sector_weights(real_disag_config):
+    weight_dict = real_disag_config.get_weight_dictionary()
+
+    assert weight_dict[("USA", "A01")] == 0.990
+    assert weight_dict[("ROW", "A01")] == 0.915
+    assert weight_dict[("USA", "A03")] == 0.010
+    assert weight_dict[("ROW", "A03")] == 0.085

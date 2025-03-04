@@ -149,6 +149,21 @@ class DisaggregationConfig(BaseModel):
 
         return result
 
+    def get_simplified_mapping(self) -> dict[str, list[str]]:
+        """Get simplified mapping from original sectors to disaggregated subsectors.
+
+        This function creates a mapping from original sector codes to disaggregated subsector codes.
+        It is used to simplify the output of the disaggregation process.
+
+        Returns:
+            A dictionary mapping original sector codes to lists of disaggregated subsector codes.
+        """
+        mapping = {}
+        if self.sectors:
+            for sector, config in self.sectors.items():
+                mapping[sector] = list(config.subsectors.keys())
+        return mapping
+
     def get_disagg_mapping(self) -> dict[tuple[str, str], set[tuple[str, str]]]:
         """Get mapping from original (country, sector) pairs to disaggregated pairs.
 
@@ -298,3 +313,30 @@ class DisaggregationConfig(BaseModel):
         # Final size is countries × sectors
         final_size = n_countries * n_sectors
         return final_size, final_size
+
+    def get_weight_dictionary(self) -> dict[tuple[str, str], float]:
+        """
+        Get a dictionary of weights for each (country, sector) pair.
+
+        Returns:
+            Dictionary mapping (country, sector) pairs to their relative output weights.
+        """
+
+        # Start with empty dictionary
+        weights = {}
+
+        # Add sector weights
+        if self.sectors:
+            for sector, config in self.sectors.items():
+                for subsector, subsector_config in config.subsectors.items():
+                    for country, weight in subsector_config.relative_output_weights.items():
+                        weights[(country, subsector)] = weight
+
+        # Add country weights
+        if self.countries:
+            for country, config in self.countries.items():
+                for region, region_config in config.regions.items():
+                    for sector, weight in region_config.sector_weights.items():
+                        weights[(region, sector)] = weight
+
+        return weights
