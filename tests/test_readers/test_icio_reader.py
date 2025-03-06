@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from disag_tools.readers.disaggregation_blocks import DisaggregationBlocks
-from disag_tools.readers.icio_reader import ICIOReader
+from disag_tools.readers.icio_reader import ICIOReader, CondensedICIOReader
 
 logger = logging.getLogger(__name__)
 
@@ -611,3 +611,75 @@ class TestICIOReader:
         industry_mapping = {"NEW": ["INVALID"]}
         with pytest.raises(ValueError, match="Invalid industry codes in aggregation mapping"):
             ICIOReader.from_csv_with_aggregation(sample_csv, industry_aggregation=industry_mapping)
+
+    def test_icio_reader_consistency(self, icio_reader):
+        consumption = icio_reader.intermediate_consumption
+        output = icio_reader.output_from_out
+        expenses = icio_reader.expenses
+        value_added = icio_reader.value_added
+
+        assert np.allclose(consumption + expenses + value_added, output, atol=1)
+
+    def test_final_demand(self, usa_reader):
+        domestic_demand_table = usa_reader.get_domestic_final_demand_table("USA")
+
+        # make sure index is the same as industries
+        assert set(domestic_demand_table.index) == set(usa_reader.industries)
+
+        domestic_demand = usa_reader.get_domestic_final_demand("USA")
+
+        assert np.all(domestic_demand_table.sum(axis=1) == domestic_demand)
+
+        foreign_demand_table = usa_reader.get_foreign_final_demand_table("USA")
+
+        # make sure index is the same as industries
+        assert set(foreign_demand_table.index) == set(usa_reader.industries)
+
+        foreign_demand = usa_reader.get_foreign_final_demand("USA")
+
+        assert np.all(foreign_demand_table.sum(axis=1) == foreign_demand)
+
+
+class TestCondensedICIOReader:
+
+    def test_creation(self, usa_reader):
+        condensed = CondensedICIOReader.from_icio_reader(usa_reader)
+
+        set_columns1 = set(usa_reader.data.columns.get_level_values(1))
+        set_columns2 = set(condensed.data.columns.get_level_values(1))
+
+        # set_columns1 -= usa_reader.FINAL_DEMAND_PREFIXES
+
+        assert (
+            set_columns1 - set_columns2 == set()
+        ), f"""
+        Column level 1 should be preserved. Lost columns: {set_columns1 - set_columns2}"""
+
+        assert condensed.data.sum().sum() == usa_reader.data.sum().sum()
+
+    def test_output(self, usa_reader):
+        condensed = CondensedICIOReader.from_icio_reader(usa_reader)
+
+        output_from_out = usa_reader.output_from_out.loc[condensed.countries]
+
+        condensed_out = condensed.output_from_out
+        condensed_out_sums = condensed.output_from_sums
+
+        # assert output_from_out.values == condensed_out.values
+        assert np.allclose(output_from_out.values, condensed_out.values, rtol=1e-2)
+        assert np.allclose(output_from_out.values, condensed_out_sums.values, rtol=1e-2)
+
+    def test_tech_coeffs(self, usa_reader):
+        condensed = CondensedICIOReader.from_icio_reader(usa_reader)
+
+        tech_coef = condensed.technical_coefficients
+
+        n_industries = len(condensed.industries)
+
+        assert tech_coef.shape == (n_industries, n_industries)
+
+        assert np.allclose(
+            tech_coef.values,
+            usa_reader.technical_coefficients.loc["USA", "USA"].values,
+            rtol=1e-2,
+        )

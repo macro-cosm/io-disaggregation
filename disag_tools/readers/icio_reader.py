@@ -806,6 +806,29 @@ class ICIOReader:
 
         return final
 
+    def get_domestic_final_demand_table(self, country_code: str):
+        final_demand_table = self.final_demand_table
+        domestic_final_demand = final_demand_table.loc[country_code, country_code]
+        return domestic_final_demand
+
+    def get_foreign_final_demand_table(self, country_code: str):
+        final_demand_table = self.final_demand_table
+        columns = final_demand_table.columns.get_level_values(0)
+        foreign_columns = columns[columns != country_code]
+        foreign_final_demand = final_demand_table.loc[:, foreign_columns]
+        # sum over countries, ie column level 0
+        foreign_final_demand = foreign_final_demand.groupby(level=0, axis=1).sum()  # type: ignore
+        foreign_final_demand = foreign_final_demand.loc[country_code]
+        return foreign_final_demand
+
+    def get_domestic_final_demand(self, country_code: str):
+        domestic_final_demand = self.get_domestic_final_demand_table(country_code).sum(axis=1)
+        return domestic_final_demand
+
+    def get_foreign_final_demand(self, country_code: str):
+        foreign_final_demand = self.get_foreign_final_demand_table(country_code).sum(axis=1)
+        return foreign_final_demand
+
     @property
     def final_demand(self) -> pd.Series:
         """
@@ -860,6 +883,25 @@ class ICIOReader:
         return final
 
     @property
+    def value_added(self) -> pd.Series:
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
+
+        va: pd.Series = self.data.loc[("VA", "VA"), valid_pairs]  # type: ignore
+
+        return va
+
+    @property
+    def expenses(self) -> pd.Series:
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
+
+        expenses: pd.Series = self.data.loc[("TLS", "TLS"), valid_pairs]  # type: ignore
+        return expenses
+
+    @property
     def intermediate_consumption(self) -> pd.Series:
         """
         Get total intermediate consumption for each sector.
@@ -884,7 +926,42 @@ class ICIOReader:
                 - Values: Sum of all intermediate uses
                 - Only regular industries included (no special sectors)
         """
-        return self.intermediate_demand_table.sum(axis=1)
+        return self.intermediate_demand_table.sum(axis=0)
+
+    def get_intermediate_exports(self, country_code: str):
+        intermediate_demand_table = self.intermediate_demand_table
+        columns = intermediate_demand_table.columns.get_level_values(0)
+        foreign_columns = columns[columns != country_code]
+        intermediate_exports = intermediate_demand_table.loc[country_code, foreign_columns]
+        # sum over each the columns
+        intermediate_exports = intermediate_exports.sum(axis=1)
+
+        return intermediate_exports
+
+    def get_intermediate_imports(self, country_code: str):
+        intermediate_demand_table = self.intermediate_demand_table
+        indices = intermediate_demand_table.index.get_level_values(0)
+
+        foreign_indices = indices[indices != country_code]
+        intermediate_imports = intermediate_demand_table.loc[foreign_indices, country_code]
+
+        # sum over each the columns
+        intermediate_imports = intermediate_imports.sum(axis=0)
+        return intermediate_imports
+
+    def get_final_demand_imports_table(self, country_code: str):
+        final_demand_table = self.final_demand_table
+        indices = final_demand_table.index.get_level_values(0)
+        foreign_indices = indices[indices != country_code]
+        final_demand_imports_table = final_demand_table.loc[foreign_indices, country_code]
+        # sum over index level 0
+        final_demand_imports_table = final_demand_imports_table.groupby(level=0).sum()
+        return final_demand_imports_table
+
+    def get_final_demand_imports(self, country_code: str):
+        final_demand_imports_table = self.get_final_demand_imports_table(country_code)
+        final_demand_imports = final_demand_imports_table.sum(axis=0)
+        return final_demand_imports
 
     @property
     def technical_coefficients(self) -> pd.DataFrame:
@@ -962,3 +1039,95 @@ class ICIOReader:
         except Exception as e:
             logger.error(f"Error loading industry list: {str(e)}")
             return []
+
+
+class CondensedICIOReader(ICIOReader):
+    """
+    A condensed version of the ICIOReader that puts the ROW as imports/exports.
+    """
+
+    data: pd.DataFrame
+    countries: list[str]
+    industries: list[str]
+
+    def __init__(self, data: pd.DataFrame, countries: list[str], industries: list[str]):
+        super().__init__(data, countries, industries)
+
+    @classmethod
+    def from_icio_reader(cls, reader: ICIOReader) -> "CondensedICIOReader":
+        """
+        Create a condensed version of the ICIO table where ROW flows are represented as imports/exports.
+
+        This transformation:
+        1. Removes the ROW from the countries list
+        2. Adds "Imports" rows for each industry (from ROW)
+        3. Adds "Exports" columns for each industry (to ROW)
+        4. Aggregates all final demand components into a single "FD" column per country
+        5. Preserves all special elements (VA, TLS, etc.)
+
+        Args:
+            reader: Original ICIOReader instance
+
+        Returns:
+            CondensedICIOReader: New reader with ROW transformed into imports/exports
+        """
+        # Create a copy of the data
+        new_data = reader.data.copy()
+
+        # imports
+        row_index = new_data.index.get_level_values(0) == "ROW"
+        imports = new_data.loc[row_index, :].sum(axis=0)
+
+        # drop the row from the index and replace it with imports
+        new_data.drop(index="ROW", level=0, inplace=True)
+        new_data.loc[("Imports", "Imports"), :] = imports
+
+        # exports
+        row_columns = new_data.columns.get_level_values(0) == "ROW"
+        exports = new_data.loc[:, row_columns].sum(axis=1)
+
+        # drop the row from the columns and replace it with exports
+        new_data.drop(columns="ROW", level=0, inplace=True)
+        new_data[("Exports", "Exports")] = exports
+
+        # Create a new list of countries without ROW
+        new_countries = [c for c in reader.countries if c != "ROW"]
+
+        return cls(new_data, new_countries, reader.industries)
+
+    def get_all_exports(self):
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
+
+        exports = self.data.loc[valid_pairs, "Exports"]
+
+        return exports
+
+    def get_country_exports(self, country_code: str):
+        exports = self.data.loc[country_code, "Exports"]
+        return exports
+
+    @property
+    def output_from_sums(self) -> pd.Series:
+        intermediate_demand = self.intermediate_demand_table.sum(axis=1)
+        final_demand = self.final_demand
+        exports = self.get_all_exports().sum(axis=1)
+
+        total_output = intermediate_demand + final_demand.values + exports.values
+
+        return total_output
+
+    @property
+    def expenses(self) -> pd.Series:
+        valid_pairs = pd.MultiIndex.from_product(
+            [self.countries, self.industries], names=["CountryInd", "industryInd"]
+        )
+
+        tls = self.data.loc[("TLS", "TLS"), valid_pairs]
+
+        imports = self.data.loc[("Imports", "Imports"), valid_pairs]
+
+        expenses: pd.Series = tls + imports  # type: ignore
+
+        return expenses
