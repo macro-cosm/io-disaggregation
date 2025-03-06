@@ -94,7 +94,7 @@ class DisaggregationProblem:
             subsectors = disag_mapping[sector.sector_id]
             problems.append(
                 SectorDisaggregationProblem.from_disaggregation_block(
-                    blocks, sector.index, weights, sector, list(subsectors)
+                    blocks, sector.index, weights, sector, sorted(list(subsectors))
                 )
             )
 

@@ -41,9 +41,33 @@ def sector_config_path(data_dir: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def real_disag_config(data_dir: Path) -> DisaggregationConfig:
+def real_disag_config(data_dir: Path, usa_reader) -> DisaggregationConfig:
+    """Create the disaggregation configuration with weights computed from actual data.
+
+    Instead of using hardcoded weights from the YAML file, this computes the weights
+    from the actual output values in the disaggregated data.
+    """
     with open(data_dir / "test_sector_disagg.yaml") as f:
         config_dict = yaml.safe_load(f)
+
+    # Get the actual output values for A01 and A03
+    usa_a01_output = usa_reader.output_from_out.loc[("USA", "A01")]
+    usa_a03_output = usa_reader.output_from_out.loc[("USA", "A03")]
+    usa_total = usa_a01_output + usa_a03_output
+
+    row_a01_output = usa_reader.output_from_out.loc[("ROW", "A01")]
+    row_a03_output = usa_reader.output_from_out.loc[("ROW", "A03")]
+    row_total = row_a01_output + row_a03_output
+
+    # Compute relative weights
+    config_dict["sectors"]["A"]["subsectors"]["A01"]["relative_output_weights"] = {
+        "USA": usa_a01_output / usa_total,
+        "ROW": row_a01_output / row_total,
+    }
+    config_dict["sectors"]["A"]["subsectors"]["A03"]["relative_output_weights"] = {
+        "USA": usa_a03_output / usa_total,
+        "ROW": row_a03_output / row_total,
+    }
 
     return DisaggregationConfig(**config_dict)
 
