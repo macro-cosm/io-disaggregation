@@ -1095,6 +1095,13 @@ class CondensedICIOReader(ICIOReader):
 
         return cls(new_data, new_countries, reader.industries)
 
+    @classmethod
+    def from_csv_selection(
+        cls, csv_path: str | Path, selected_countries: list[str] | None = None
+    ) -> ICIOReader:
+        icio_reader = super().from_csv_selection(csv_path, selected_countries)
+        return CondensedICIOReader.from_icio_reader(icio_reader)
+
     def get_all_exports(self):
         valid_pairs = pd.MultiIndex.from_product(
             [self.countries, self.industries], names=["CountryInd", "industryInd"]
