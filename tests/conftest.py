@@ -3,13 +3,12 @@
 import logging
 from pathlib import Path
 
-import pandas as pd
 import pytest
 import yaml
 
 from disag_tools.configurations import DisaggregationConfig
 from disag_tools.readers import ICIOReader
-from disag_tools.readers.disaggregation_blocks import (
+from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,
     unfold_countries,

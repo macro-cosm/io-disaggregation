@@ -8,7 +8,7 @@ import numpy as np
 
 from disag_tools.configurations.config import DisaggregationConfig
 
-from disag_tools.readers.disaggregation_blocks import (
+from disag_tools.disaggregation.disaggregation_blocks import (
     SectorId,
     SectorInfo,
     DisaggregationBlocks,

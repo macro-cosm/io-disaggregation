@@ -8,7 +8,7 @@ known data.
 import numpy as np
 import pytest
 
-from disag_tools.readers.disaggregation_blocks import (
+from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,
     unfold_countries,

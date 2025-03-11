@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from disag_tools.readers.disaggregation_blocks import DisaggregationBlocks
+from disag_tools.disaggregation.disaggregation_blocks import DisaggregationBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
 logger = logging.getLogger(__name__)
