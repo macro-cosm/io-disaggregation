@@ -32,3 +32,15 @@ def test_problem_compatibility(default_problem, aggregated_blocks, disaggregated
     large_m_problem = default_problem.problems[n - 1].m_matrix
 
     assert np.allclose(large_m, large_m_problem)
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_problem_solution(default_problem, n, disaggregated_blocks):
+    problem = default_problem.problems[n - 1]
+    m_matrix = problem.m_matrix
+    y_vector = problem.y_vector
+
+    x = disaggregated_blocks.get_xn_vector(n)
+
+    # check that m @ x = y
+    assert np.allclose(m_matrix @ x, y_vector, rtol=2e-2)
