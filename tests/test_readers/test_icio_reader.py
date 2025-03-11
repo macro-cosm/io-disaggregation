@@ -683,3 +683,48 @@ class TestCondensedICIOReader:
             usa_reader.technical_coefficients.loc["USA", "USA"].values,
             rtol=1e-2,
         )
+
+    def test_default_critical_inputs(self, usa_reader):
+        condensed = CondensedICIOReader.from_icio_reader(usa_reader)
+
+        critical_inputs = condensed.default_critical_inputs
+
+        assert critical_inputs.shape == (len(condensed.industries), len(condensed.industries))
+
+    def test_accounting(self, usa_reader):
+        condensed = CondensedICIOReader.from_icio_reader(usa_reader)
+
+        intermediate_demand = condensed.intermediate_demand_table
+
+        total_interm_demand = intermediate_demand.sum(axis=1)
+
+        output = condensed.output_from_out
+
+        final_demand = condensed.final_demand
+
+        exports = condensed.get_all_exports()
+
+        output_sum = total_interm_demand.values + final_demand.values + exports.values
+        assert np.allclose(
+            output_sum,
+            output.values,
+            rtol=1e-2,
+        )
+
+    def test_accounting_usacan(self, condensed_reader):
+        intermediate_demand = condensed_reader.intermediate_demand_table
+
+        total_interm_demand = intermediate_demand.sum(axis=1)
+
+        output = condensed_reader.output_from_out
+
+        final_demand = condensed_reader.final_demand
+
+        exports = condensed_reader.get_all_exports()
+
+        output_sum = total_interm_demand.values + final_demand.values + exports.values
+        assert np.allclose(
+            output_sum,
+            output.values,
+            rtol=1e-2,
+        )

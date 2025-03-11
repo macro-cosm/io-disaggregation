@@ -8,6 +8,7 @@ import pytest
 
 from disag_tools.readers import ICIOReader
 from disag_tools.readers.disaggregation_blocks import DisaggregatedBlocks, DisaggregationBlocks
+from disag_tools.readers.icio_reader import CondensedICIOReader
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
@@ -182,3 +183,8 @@ def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
 @pytest.fixture(scope="session")
 def usa_reader_blocks(usa_reader):
     return DisaggregatedBlocks.from_reader(usa_reader, sector_mapping={"A": ["A01", "A03"]})
+
+
+@pytest.fixture(scope="session")
+def condensed_reader(icio_csv_path):
+    return CondensedICIOReader.from_csv_selection(icio_csv_path, selected_countries=["USA", "CAN"])

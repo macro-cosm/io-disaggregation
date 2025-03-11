@@ -1102,12 +1102,12 @@ class CondensedICIOReader(ICIOReader):
         icio_reader = super().from_csv_selection(csv_path, selected_countries)
         return CondensedICIOReader.from_icio_reader(icio_reader)
 
-    def get_all_exports(self):
+    def get_all_exports(self) -> pd.Series:
         valid_pairs = pd.MultiIndex.from_product(
             [self.countries, self.industries], names=["CountryInd", "industryInd"]
         )
 
-        exports = self.data.loc[valid_pairs, "Exports"]
+        exports = self.data.loc[valid_pairs, ("Exports", "Exports")]
 
         return exports
 
@@ -1119,9 +1119,9 @@ class CondensedICIOReader(ICIOReader):
     def output_from_sums(self) -> pd.Series:
         intermediate_demand = self.intermediate_demand_table.sum(axis=1)
         final_demand = self.final_demand
-        exports = self.get_all_exports().sum(axis=1)
+        exports = self.get_all_exports()
 
-        total_output = intermediate_demand + final_demand.values + exports.values
+        total_output = intermediate_demand + final_demand + exports
 
         return total_output
 
@@ -1138,3 +1138,25 @@ class CondensedICIOReader(ICIOReader):
         expenses: pd.Series = tls + imports  # type: ignore
 
         return expenses
+
+    @property
+    def default_critical_inputs(self) -> pd.DataFrame:
+        technical_coefficients = self.technical_coefficients
+
+        countries = self.countries
+
+        # iterate over each pair of countries, take the sum of the technical coefficients
+        sum_tech_coeffs = pd.DataFrame(
+            index=technical_coefficients.loc[countries[0]].index,
+            columns=technical_coefficients.loc[countries[0]].index,
+            data=0,
+        )
+
+        for country1 in countries:
+            for country2 in countries:
+                sum_tech_coeffs += technical_coefficients.loc[country1, country2]
+
+        # replace non-zero values with 1
+        sum_tech_coeffs[sum_tech_coeffs != 0] = 1
+
+        return sum_tech_coeffs
