@@ -105,9 +105,9 @@ class DisaggregationConfig(BaseModel):
 
     @staticmethod
     def _get_combinatorial_mapping(
-        sector_mapping: dict[tuple[str, str], set[tuple[str, str]]],
-        country_mapping: dict[tuple[str, str], set[tuple[str, str]]],
-    ) -> dict[tuple[str, str], set[tuple[str, str]]]:
+        sector_mapping: dict[tuple[str, str], list[tuple[str, str]]],
+        country_mapping: dict[tuple[str, str], list[tuple[str, str]]],
+    ) -> dict[tuple[str, str], list[tuple[str, str]]]:
         """Combine sector and country mappings to create final mapping.
 
         This function handles the combinatorics of combining sector and country mappings.
@@ -131,17 +131,17 @@ class DisaggregationConfig(BaseModel):
         result = {}
         all_pairs = set(sector_mapping.keys()) | set(country_mapping.keys())
 
-        for orig_pair in all_pairs:
+        for orig_pair in sorted(all_pairs):
             if orig_pair in sector_mapping and orig_pair in country_mapping:
                 # Need to create combinations
                 # Get all regions from country mapping
-                regions = {pair[0] for pair in country_mapping[orig_pair]}
+                regions = sorted({pair[0] for pair in country_mapping[orig_pair]})
                 # Get all subsectors from sector mapping
-                subsectors = {pair[1] for pair in sector_mapping[orig_pair]}
+                subsectors = sorted({pair[1] for pair in sector_mapping[orig_pair]})
                 # Create all combinations
-                result[orig_pair] = {
-                    (region, subsector) for region, subsector in product(regions, subsectors)
-                }
+                result[orig_pair] = sorted(
+                    [(region, subsector) for region, subsector in product(regions, subsectors)]
+                )
             elif orig_pair in sector_mapping:
                 result[orig_pair] = sector_mapping[orig_pair]
             else:
@@ -161,14 +161,15 @@ class DisaggregationConfig(BaseModel):
         mapping = {}
         if self.sectors:
             for sector, config in self.sectors.items():
-                mapping[sector] = list(config.subsectors.keys())
+                mapping[sector] = sorted(config.subsectors.keys())
         return mapping
 
-    def get_disagg_mapping(self) -> dict[tuple[str, str], set[tuple[str, str]]]:
+    def get_disagg_mapping(self) -> dict[tuple[str, str], list[tuple[str, str]]]:
         """Get mapping from original (country, sector) pairs to disaggregated pairs.
 
         The mapping depends on whether we have country disaggregation, sector disaggregation, or both.
         The mapping is used to determine how each (country, sector) pair should be split into new pairs.
+        The output lists are sorted for predictable ordering.
 
         Examples:
             Sector-only disaggregation:
@@ -188,10 +189,10 @@ class DisaggregationConfig(BaseModel):
                                         ROW: 0.5
 
                 Output mapping:
-                    ("", "MFG"): {("", "MFG1"), ("", "MFG2")}  # For empty string case
-                    ("USA", "MFG"): {("USA", "MFG1"), ("USA", "MFG2")}  # For country-specific case
-                    ("CHN", "MFG"): {("CHN", "MFG1"), ("CHN", "MFG2")}
-                    ("ROW", "MFG"): {("ROW", "MFG1"), ("ROW", "MFG2")}
+                    ("", "MFG"): [("", "MFG1"), ("", "MFG2")]  # For empty string case
+                    ("USA", "MFG"): [("USA", "MFG1"), ("USA", "MFG2")]  # For country-specific case
+                    ("CHN", "MFG"): [("CHN", "MFG1"), ("CHN", "MFG2")]
+                    ("ROW", "MFG"): [("ROW", "MFG1"), ("ROW", "MFG2")]
 
             Country-only disaggregation:
                 Input config:
@@ -208,8 +209,8 @@ class DisaggregationConfig(BaseModel):
                                         SRV: 0.5
 
                 Output mapping:
-                    ("CHN", "MFG"): {("CHN1", "MFG"), ("CHN2", "MFG")}
-                    ("CHN", "SRV"): {("CHN1", "SRV"), ("CHN2", "SRV")}
+                    ("CHN", "MFG"): [("CHN1", "MFG"), ("CHN2", "MFG")]
+                    ("CHN", "SRV"): [("CHN1", "SRV"), ("CHN2", "SRV")]
 
             Combined disaggregation:
                 Input config:
@@ -233,16 +234,16 @@ class DisaggregationConfig(BaseModel):
                                         MFG: 0.6
 
                 Output mapping:
-                    ("CHN", "MFG"): {
+                    ("CHN", "MFG"): [
                         ("CHN1", "MFG1"), ("CHN1", "MFG2"),
                         ("CHN2", "MFG1"), ("CHN2", "MFG2")
-                    }
+                    ]
 
         Returns:
-            A dictionary mapping original (country, sector) pairs to sets of disaggregated pairs.
+            A dictionary mapping original (country, sector) pairs to sorted lists of disaggregated pairs.
         """
-        sector_mapping: dict[tuple[str, str], set[tuple[str, str]]] = {}
-        country_mapping: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        sector_mapping: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        country_mapping: dict[tuple[str, str], list[tuple[str, str]]] = {}
 
         # Handle sector disaggregation
         if self.sectors:
@@ -253,11 +254,11 @@ class DisaggregationConfig(BaseModel):
                     countries.update(subsector_config.relative_output_weights.keys())
 
                 # Create mappings for each country that has weights defined
-                for country in countries:
+                for country in sorted(countries):
                     orig_pair = (country, sector)
-                    sector_mapping[orig_pair] = {
-                        (country, subsector) for subsector in config.subsectors
-                    }
+                    sector_mapping[orig_pair] = sorted(
+                        [(country, subsector) for subsector in config.subsectors]
+                    )
 
         # Handle country disaggregation
         if self.countries:
@@ -267,10 +268,12 @@ class DisaggregationConfig(BaseModel):
                 for region_config in config.regions.values():
                     sectors.update(region_config.sector_weights.keys())
 
-                for sector in sectors:
+                for sector in sorted(sectors):
                     orig_pair = (country, sector)
                     # Just map to regions
-                    country_mapping[orig_pair] = {(region, sector) for region in config.regions}
+                    country_mapping[orig_pair] = sorted(
+                        [(region, sector) for region in config.regions]
+                    )
 
         # Combine the mappings
         return self._get_combinatorial_mapping(sector_mapping, country_mapping)
