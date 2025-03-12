@@ -48,11 +48,11 @@ class SolutionBlocks:
             matrix = matrix.drop(sector_id, axis=1)
             output = output.drop(sector_id)
 
-            # Create new rows and columns for subsectors
+            # Add new rows and columns for subsectors
             # First add rows
-            for subsector in subsectors:
-                matrix.loc[subsector] = np.nan
-            # Then add columns (reindex to maintain order)
+            all_rows = list(matrix.index) + subsectors
+            matrix = matrix.reindex(index=all_rows, fill_value=np.nan)
+            # Then add columns
             all_cols = list(matrix.columns) + subsectors
             matrix = matrix.reindex(columns=all_cols, fill_value=np.nan)
 
