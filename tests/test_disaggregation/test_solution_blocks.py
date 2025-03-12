@@ -1,8 +1,6 @@
 import numpy as np
-import pytest
 
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
-from disag_tools.disaggregation.disaggregation_blocks import unfold_countries
 
 
 def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
