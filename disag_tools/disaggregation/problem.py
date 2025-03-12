@@ -7,11 +7,10 @@ from typing import TypeAlias
 import numpy as np
 
 from disag_tools.configurations.config import DisaggregationConfig
-
 from disag_tools.disaggregation.disaggregation_blocks import (
+    DisaggregationBlocks,
     SectorId,
     SectorInfo,
-    DisaggregationBlocks,
     unfold_countries,
 )
 from disag_tools.readers.icio_reader import ICIOReader

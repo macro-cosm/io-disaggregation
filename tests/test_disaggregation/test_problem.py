@@ -1,6 +1,7 @@
-import pytest
 import logging
+
 import numpy as np
+import pytest
 
 from disag_tools.disaggregation.problem import DisaggregationProblem
 

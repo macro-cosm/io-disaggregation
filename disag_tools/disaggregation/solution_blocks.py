@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from typing import TypeAlias
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from disag_tools.disaggregation.disaggregation_blocks import SectorInfo, DisaggregationBlocks
+from disag_tools.disaggregation.disaggregation_blocks import DisaggregationBlocks, SectorInfo
 
 SectorId: TypeAlias = str | tuple[str, str]
 

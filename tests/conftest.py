@@ -7,12 +7,12 @@ import pytest
 import yaml
 
 from disag_tools.configurations import DisaggregationConfig
-from disag_tools.readers import ICIOReader
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,
     unfold_countries,
 )
+from disag_tools.readers import ICIOReader
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
