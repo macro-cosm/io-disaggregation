@@ -138,18 +138,18 @@ def test_m5_eqn(aggregated_blocks, disaggregated_blocks, n):
     disaggregated_sectors = disaggregated_blocks.sector_mapping[aggregated_sectors]
 
     indices = [
-        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        disaggregated_blocks.to_disagg_sector_names.index(sector)
         for sector in disaggregated_sectors
     ]
-    disaggregated_sectors = [disaggregated_blocks.disaggregated_sector_names[i] for i in indices]
+    disaggregated_sectors = [disaggregated_blocks.to_disagg_sector_names[i] for i in indices]
 
     F = disaggregated_blocks.reordered_matrix.loc[
-        disaggregated_sectors, disaggregated_blocks.non_disaggregated_sector_names
+        disaggregated_sectors, disaggregated_blocks.non_disagg_sector_names
     ].values
 
     # get the x_j/z_n vector
-    sector_n = aggregated_blocks.disaggregated_sector_names[n - 1]
-    x_j = aggregated_blocks.output.loc[aggregated_blocks.non_disaggregated_sector_names].values
+    sector_n = aggregated_blocks.to_disagg_sector_names[n - 1]
+    x_j = aggregated_blocks.output.loc[aggregated_blocks.non_disagg_sector_names].values
     z_n = aggregated_blocks.output.loc[sector_n]
     weights_vector = x_j / z_n
 
@@ -172,21 +172,17 @@ def test_m4_nl_eqn(aggregated_blocks, disaggregated_blocks, n, l):
     disaggregated_sectors_l = disaggregated_blocks.sector_mapping[aggregated_sector_l]
 
     indices_n = [
-        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        disaggregated_blocks.to_disagg_sector_names.index(sector)
         for sector in disaggregated_sectors_n
     ]
 
     indices_l = [
-        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        disaggregated_blocks.to_disagg_sector_names.index(sector)
         for sector in disaggregated_sectors_l
     ]
 
-    disaggregated_sectors_n = [
-        disaggregated_blocks.disaggregated_sector_names[i] for i in indices_n
-    ]
-    disaggregated_sectors_l = [
-        disaggregated_blocks.disaggregated_sector_names[i] for i in indices_l
-    ]
+    disaggregated_sectors_n = [disaggregated_blocks.to_disagg_sector_names[i] for i in indices_n]
+    disaggregated_sectors_l = [disaggregated_blocks.to_disagg_sector_names[i] for i in indices_l]
 
     gnl = disaggregated_blocks.reordered_matrix.loc[
         disaggregated_sectors_n, disaggregated_sectors_l

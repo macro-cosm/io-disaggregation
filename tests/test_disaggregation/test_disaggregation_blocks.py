@@ -403,8 +403,8 @@ def test_invalid_sector_indices():
     blocks = DisaggregationBlocks(
         sectors=[SectorInfo(1, "A01", "Test", 2)],
         reordered_matrix=matrix,
-        disaggregated_sector_names=["A01"],
-        non_disaggregated_sector_names=[],
+        to_disagg_sector_names=["A01"],
+        non_disagg_sector_names=[],
         output=pd.Series(index=matrix.index, data=[100]),  # No non-disaggregated sectors
     )
 
@@ -428,7 +428,7 @@ def test_invalid_sector_indices():
 
 
 def test_fixture(usa_reader_blocks):
-    assert usa_reader_blocks.disaggregated_sector_names == [
+    assert usa_reader_blocks.to_disagg_sector_names == [
         ("ROW", "A01"),
         ("ROW", "A03"),
         ("USA", "A01"),

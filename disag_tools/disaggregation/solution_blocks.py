@@ -14,6 +14,8 @@ class SolutionBlocks:
     sectors: list[SectorInfo]
     reordered_matrix: pd.DataFrame
     output: pd.Series
+    sector_mapping: dict[SectorId, list[SectorId]]
+    aggregated_sectors_list: list[SectorId]
 
     @classmethod
     def from_disaggregation_blocks(
@@ -39,7 +41,7 @@ class SolutionBlocks:
         output = blocks.output.copy()
 
         # For each sector being disaggregated
-        for sector_id in blocks.disaggregated_sector_names:
+        for sector_id in blocks.to_disagg_sector_names:
             # Get the subsectors for this sector
             subsectors = disaggregation_dict[sector_id]
 
@@ -62,7 +64,7 @@ class SolutionBlocks:
 
         # Create SectorInfo objects for the new sectors
         sectors = []
-        for i, sector_id in enumerate(blocks.disaggregated_sector_names):
+        for i, sector_id in enumerate(blocks.to_disagg_sector_names):
             subsectors = disaggregation_dict[sector_id]
             # For each subsector, create a SectorInfo with k=1 since it's already disaggregated
             for subsector in subsectors:
@@ -71,4 +73,10 @@ class SolutionBlocks:
                     SectorInfo(index=len(sectors) + 1, sector_id=subsector, name=name, k=1)
                 )
 
-        return cls(sectors=sectors, reordered_matrix=matrix, output=output)
+        return cls(
+            sectors=sectors,
+            reordered_matrix=matrix,
+            output=output,
+            sector_mapping=disaggregation_dict,
+            aggregated_sectors_list=list(blocks.to_disagg_sector_names),
+        )

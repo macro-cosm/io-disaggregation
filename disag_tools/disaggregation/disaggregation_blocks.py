@@ -82,15 +82,15 @@ class DisaggregationBlocks:
 
     Attributes:
         sectors: List of sectors being disaggregated, with their indices
-        disaggregated_sector_names: List of sector codes/names being disaggregated
-        non_disaggregated_sector_names: List of sector codes/names not being disaggregated
+        to_disagg_sector_names: List of sector codes/names being disaggregated
+        non_disagg_sector_names: List of sector codes/names not being disaggregated
         reordered_matrix: The reordered technical coefficients matrix
         output: Output values for all sectors
     """
 
     sectors: list[SectorInfo]
-    disaggregated_sector_names: list[str | tuple[str, str]]
-    non_disaggregated_sector_names: list[str | tuple[str, str]]
+    to_disagg_sector_names: list[str | tuple[str, str]]
+    non_disagg_sector_names: list[str | tuple[str, str]]
     reordered_matrix: pd.DataFrame
     output: pd.Series
 
@@ -219,8 +219,8 @@ class DisaggregationBlocks:
         return cls(
             sectors=sectors,
             reordered_matrix=filtered_tech_coef,
-            disaggregated_sector_names=disaggregated,
-            non_disaggregated_sector_names=undisaggregated,
+            to_disagg_sector_names=disaggregated,
+            non_disagg_sector_names=undisaggregated,
             output=reordered_outputs,
         )
 
@@ -290,7 +290,7 @@ class DisaggregationBlocks:
             raise
 
         # Get the block and repeat it for each subsector
-        B = self.reordered_matrix.loc[self.non_disaggregated_sector_names, sector_id]
+        B = self.reordered_matrix.loc[self.non_disagg_sector_names, sector_id]
 
         return B.values
 
@@ -316,7 +316,7 @@ class DisaggregationBlocks:
             logger.error(f"Sector {sector_id} not found in matrix index")
             raise
 
-        C = self.reordered_matrix.loc[sector_id, self.non_disaggregated_sector_names].values
+        C = self.reordered_matrix.loc[sector_id, self.non_disagg_sector_names].values
 
         return C
 
@@ -390,7 +390,7 @@ class DisaggregationBlocks:
             Array representing the M₁ constraint matrix block
         """
         k = self.sectors[n - 1].k
-        return generate_M1_block(len(self.non_disaggregated_sector_names), k, relative_weights)
+        return generate_M1_block(len(self.non_disagg_sector_names), k, relative_weights)
 
     def get_m2_block(self, n: int) -> np.ndarray:
         """Get the M₂ block for sector n (sum preservation for technical coefficients).
@@ -402,7 +402,7 @@ class DisaggregationBlocks:
             Array representing the M₂ constraint matrix block
         """
         k = self.sectors[n - 1].k
-        return generate_M2_block(len(self.non_disaggregated_sector_names), k)
+        return generate_M2_block(len(self.non_disagg_sector_names), k)
 
     def get_m3_nl_block(self, n: int, weights_l: np.ndarray) -> np.ndarray:
         """Get the M₃ block for sectors n and l (cross-sector weight constraints).
@@ -451,8 +451,8 @@ class DisaggregationBlocks:
             scaled by the ratio of sector outputs
         """
         n_l = len(weights_l)
-        output_n = self.output.loc[self.disaggregated_sector_names[n - 1]]
-        output_l = self.output.loc[self.disaggregated_sector_names[l - 1]]
+        output_n = self.output.loc[self.to_disagg_sector_names[n - 1]]
+        output_l = self.output.loc[self.to_disagg_sector_names[l - 1]]
         output_ratio = output_l / output_n
         m4 = np.zeros((self.sectors[n - 1].k, n_l * self.sectors[n - 1].k))
         for i in range(self.sectors[n - 1].k):
@@ -486,8 +486,8 @@ class DisaggregationBlocks:
         """
         m5 = generate_M5_block(
             k_n=self.sectors[n - 1].k,
-            x=self.output.loc[self.non_disaggregated_sector_names].values,
-            z_n=self.output.loc[self.disaggregated_sector_names[n - 1]],
+            x=self.output.loc[self.non_disagg_sector_names].values,
+            z_n=self.output.loc[self.to_disagg_sector_names[n - 1]],
         )
         return m5
 
@@ -588,8 +588,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         self,
         sectors: list[SectorInfo],
         reordered_matrix: pd.DataFrame,
-        disaggregated_sector_names: list[str],
-        non_disaggregated_sector_names: list[str],
+        to_disagg_sector_names: list[str],
+        non_disagg_sector_names: list[str],
         sector_mapping: dict[tuple[str, str], list[tuple[str, str]]],
         aggregated_sectors_list: list[tuple[str, str]],
         m: int,
@@ -599,8 +599,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         super().__init__(
             sectors=sectors,
             reordered_matrix=reordered_matrix,
-            disaggregated_sector_names=disaggregated_sector_names,
-            non_disaggregated_sector_names=non_disaggregated_sector_names,
+            to_disagg_sector_names=to_disagg_sector_names,
+            non_disagg_sector_names=non_disagg_sector_names,
             output=output,
         )
         self.sector_mapping = sector_mapping
@@ -638,8 +638,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         aggregated_sectors_list = sorted(list(full_mapping.keys()))
 
         # Get final demand and output for disaggregated sectors
-        final_demand = reader.final_demand.loc[blocks.disaggregated_sector_names]
-        output = reader.output_from_out.loc[blocks.disaggregated_sector_names]
+        final_demand = reader.final_demand.loc[blocks.to_disagg_sector_names]
+        output = reader.output_from_out.loc[blocks.to_disagg_sector_names]
 
         # Create a Series with the same index as final_demand but containing total output of aggregated sectors
         total_output = pd.Series(index=final_demand.index, dtype=float)
@@ -659,8 +659,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         return cls(
             sectors=blocks.sectors,
             reordered_matrix=blocks.reordered_matrix,
-            disaggregated_sector_names=blocks.disaggregated_sector_names,
-            non_disaggregated_sector_names=blocks.non_disaggregated_sector_names,
+            to_disagg_sector_names=blocks.to_disagg_sector_names,
+            non_disagg_sector_names=blocks.non_disagg_sector_names,
             sector_mapping=full_mapping,
             aggregated_sectors_list=aggregated_sectors_list,
             m=len(aggregated_sectors_list),
@@ -684,15 +684,11 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
 
         # get the aggregated sectors in disaggregated sectors keeping the ordering
-        indices = [
-            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors
-        ]
-        disaggregated_sectors = [self.disaggregated_sector_names[i] for i in indices]
+        indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
+        disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
 
         # get the block
-        E = self.reordered_matrix.loc[
-            self.non_disaggregated_sector_names, disaggregated_sectors
-        ].values
+        E = self.reordered_matrix.loc[self.non_disagg_sector_names, disaggregated_sectors].values
 
         # flatten in order 11, 12, 13..., 21, 22, 23...
         E = E.flatten()
@@ -714,15 +710,11 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
 
         # get the aggregated sectors in disaggregated sectors keeping the ordering
-        indices = [
-            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors
-        ]
-        disaggregated_sectors = [self.disaggregated_sector_names[i] for i in indices]
+        indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
+        disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
 
         # get the block
-        F = self.reordered_matrix.loc[
-            disaggregated_sectors, self.non_disaggregated_sector_names
-        ].values
+        F = self.reordered_matrix.loc[disaggregated_sectors, self.non_disagg_sector_names].values
 
         # flatten in order 11, 12, 13..., 21, 22, 23...
         F = F.flatten(order="F")
@@ -748,13 +740,13 @@ class DisaggregatedBlocks(DisaggregationBlocks):
 
         # get the aggregated sectors in disaggregated sectors keeping the ordering
         indices_n = [
-            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors_n
+            self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors_n
         ]
         indices_l = [
-            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors_l
+            self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors_l
         ]
-        disaggregated_sectors_n = [self.disaggregated_sector_names[i] for i in indices_n]
-        disaggregated_sectors_l = [self.disaggregated_sector_names[i] for i in indices_l]
+        disaggregated_sectors_n = [self.to_disagg_sector_names[i] for i in indices_n]
+        disaggregated_sectors_l = [self.to_disagg_sector_names[i] for i in indices_l]
 
         # get the block
         gnl = self.reordered_matrix.loc[disaggregated_sectors_n, disaggregated_sectors_l].values
@@ -789,10 +781,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         # get the disaggregated sectors
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
 
-        indices = [
-            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors
-        ]
-        disaggregated_sectors = [self.disaggregated_sector_names[i] for i in indices]
+        indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
+        disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
 
         bn = self.final_demand.loc[disaggregated_sectors].values
         return bn
@@ -837,10 +827,8 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         # get the disaggregated sectors
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
 
-        indices = [
-            self.disaggregated_sector_names.index(sector) for sector in disaggregated_sectors
-        ]
-        disaggregated_sectors = [self.disaggregated_sector_names[i] for i in indices]
+        indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
+        disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
 
         output_vals = self.output.loc[disaggregated_sectors].values
         return output_vals / output_vals.sum()
