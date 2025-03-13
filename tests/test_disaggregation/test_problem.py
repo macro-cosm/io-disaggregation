@@ -1,7 +1,9 @@
 import logging
 
 import numpy as np
+import pandas as pd
 import pytest
+from numpy.testing import assert_allclose
 
 from disag_tools.disaggregation.problem import DisaggregationProblem
 
@@ -20,6 +22,16 @@ def test_sizes(default_problem):
     assert len(default_problem.weights) == 2
     assert len(default_problem.weights[0]) == 2
     assert default_problem.disaggregation_blocks is not None
+
+
+def test_no_prior_info(default_problem):
+    """Test that prior information is None when not provided."""
+    # Check that problem-level prior blocks are None
+    assert default_problem.prior_blocks is None
+
+    # Check that each sector's prior vector is None
+    for problem in default_problem.problems:
+        assert problem.prior_vector is None
 
 
 @pytest.mark.parametrize("n", [1, 2])
@@ -99,3 +111,80 @@ def test_solution_blocks_apply_solution(default_problem, disaggregated_blocks):
     assert np.allclose(
         solution.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
     )
+
+
+def test_solve_with_partial_prior(real_disag_config, usa_aggregated_reader, disaggregated_blocks):
+    """Test solving with partial prior information from the real solution."""
+    # Use disaggregated_blocks as our real solution
+    real_solution = disaggregated_blocks.reordered_matrix
+    non_disagg_sectors = set(disaggregated_blocks.non_disagg_sector_names)
+
+    # Create prior information DataFrame from real solution
+    prior_data = []
+
+    # For each sector pair in the solution
+    for row_sector in real_solution.index:
+        for col_sector in real_solution.columns:
+            # Only include if at least one sector is disaggregated (not in non_disagg_sectors)
+            if row_sector not in non_disagg_sectors or col_sector not in non_disagg_sectors:
+                value = real_solution.loc[row_sector, col_sector]
+                if isinstance(row_sector, tuple):
+                    prior_data.append(
+                        {
+                            "Country_row": row_sector[0],
+                            "Sector_row": row_sector[1],
+                            "Country_column": col_sector[0],
+                            "Sector_column": col_sector[1],
+                            "value": value,
+                        }
+                    )
+                else:
+                    prior_data.append(
+                        {"Sector_row": row_sector, "Sector_column": col_sector, "value": value}
+                    )
+
+    # Convert to DataFrame
+    prior_df = pd.DataFrame(prior_data)
+
+    # Randomly set 35% of values to NaN
+    np.random.seed(42)  # For reproducibility
+    mask = np.random.choice(
+        [True, False], size=len(prior_df), p=[0.35, 0.65]  # 35% True (will be set to NaN)
+    )
+    prior_df.loc[mask, "value"] = np.nan
+
+    # Drop rows with NaN values
+    prior_df = prior_df.dropna()
+
+    # Create and solve problem with prior information
+    problem_with_prior = DisaggregationProblem.from_configuration(
+        real_disag_config, usa_aggregated_reader, prior_df=prior_df
+    )
+    problem_with_prior.solve(lambda_sparse=1.0, mu_prior=10.0)
+
+    # Get solution with prior
+    solution_with_prior = problem_with_prior.solution_blocks.reordered_matrix
+
+    # Calculate correlation between real solution and solution with prior
+    # Flatten both matrices and compute correlation
+    real_flat = real_solution.values.flatten()
+    prior_flat = solution_with_prior.values.flatten()
+
+    correlation = np.corrcoef(real_flat, prior_flat)[0, 1]
+    assert correlation > 0.5, f"Correlation {correlation} is too low"
+
+    # Also verify that where we had prior information, the values are close
+    for _, row in prior_df.iterrows():
+        if "Country_row" in row:
+            row_idx = (row["Country_row"], row["Sector_row"])
+            col_idx = (row["Country_column"], row["Sector_column"])
+        else:
+            row_idx = row["Sector_row"]
+            col_idx = row["Sector_column"]
+
+        assert_allclose(
+            solution_with_prior.loc[row_idx, col_idx],
+            row["value"],
+            atol=1e-2,
+            err_msg=f"Solution differs from prior at {row_idx}, {col_idx}",
+        )
