@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from disag_tools.disaggregation.prior_blocks import PriorBlocks, PriorInfo, FinalDemandPriorInfo
+from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
 
 
 def test_prior_blocks_from_disaggregation(disaggregated_blocks, aggregated_blocks):

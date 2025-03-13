@@ -2,11 +2,11 @@
 
 import logging
 from dataclasses import dataclass
-from typing import TypeAlias, Optional
+from typing import Optional, TypeAlias
 
+import cvxpy as cp
 import numpy as np
 import pandas as pd
-import cvxpy as cp
 
 from disag_tools.configurations.config import DisaggregationConfig
 from disag_tools.disaggregation.disaggregation_blocks import (
@@ -15,7 +15,7 @@ from disag_tools.disaggregation.disaggregation_blocks import (
     SectorInfo,
     unfold_countries,
 )
-from disag_tools.disaggregation.prior_blocks import PriorBlocks, PriorInfo, FinalDemandPriorInfo
+from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
