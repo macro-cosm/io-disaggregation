@@ -1,6 +1,28 @@
 import numpy as np
+import pytest
 
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
+
+
+# solution fixture
+@pytest.fixture(scope="function")
+def solution_blocks(aggregated_blocks):
+    """Create a SolutionBlocks instance for testing.
+
+    This fixture is recomputed for each test function to ensure test isolation.
+    """
+    # Create the disaggregation dictionary for all countries
+    base_mapping = {"A": ["A01", "A03"]}
+    countries = list(aggregated_blocks.reordered_matrix.index.get_level_values(0).unique())
+
+    # Create the full mapping for all countries
+    disaggregation_dict = {}
+    for country in countries:
+        for sector, subsectors in base_mapping.items():
+            disaggregation_dict[(country, sector)] = [(country, s) for s in subsectors]
+
+    # Create solution blocks
+    return SolutionBlocks.from_disaggregation_blocks(aggregated_blocks, disaggregation_dict)
 
 
 def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
@@ -93,6 +115,14 @@ def test_solution_blocks_sector_mapping(aggregated_blocks):
     # Test that the order in aggregated_sectors_list matches the original order
     assert solution.aggregated_sectors_list == list(aggregated_blocks.to_disagg_sector_names)
 
+    # Test that non_disaggregated_sector_names matches the original
+    assert set(solution.non_disaggregated_sector_names) == set(
+        aggregated_blocks.non_disagg_sector_names
+    )
+    assert solution.non_disaggregated_sector_names == list(
+        aggregated_blocks.non_disagg_sector_names
+    )
+
     # Verify the structure matches what we expect for each country
     for country in countries:
         # Check that each country-sector pair is in the mapping
@@ -101,3 +131,77 @@ def test_solution_blocks_sector_mapping(aggregated_blocks):
         assert solution.sector_mapping[(country, "A")] == [(country, "A01"), (country, "A03")]
         # Check that it's in the aggregated sectors list
         assert (country, "A") in solution.aggregated_sectors_list
+        # Check that it's not in the non-disaggregated sectors list
+        assert (country, "A") not in solution.non_disaggregated_sector_names
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_solution_blocks_apply_e_vector(solution_blocks, disaggregated_blocks, n):
+    """Test applying the e vector to a block."""
+    # Generate the e vector
+    e_vector = disaggregated_blocks.get_e_vector(n)
+
+    # Apply the e vector to the block
+    result = solution_blocks.apply_e_vector(n, e_vector)
+
+    # check that product of block dimensions is equal to e_vector length
+    assert result.shape[0] * result.shape[1] == e_vector.shape[0]
+
+    # check that flattened result equals e_vector
+    assert np.allclose(result.flatten(), e_vector)
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_solution_blocks_apply_f_vector(solution_blocks, disaggregated_blocks, n):
+    """Test applying the f vector to a block."""
+    # Generate the f vector
+    f_vector = disaggregated_blocks.get_f_vector(n)
+
+    # Apply the f vector to the block
+    result = solution_blocks.apply_f_vector(n, f_vector)
+
+    # check that product of block dimensions is equal to f_vector length
+    assert result.shape[0] * result.shape[1] == f_vector.shape[0]
+
+    # check that flattened result (in column-major order) equals f_vector
+    assert np.allclose(result.flatten(order="F"), f_vector)
+
+
+@pytest.mark.parametrize("n,l", [(1, 1), (1, 2), (2, 1), (2, 2)])
+def test_solution_blocks_apply_g_vector(solution_blocks, disaggregated_blocks, n, l):
+    """Test applying the g vector to a block.
+
+    Tests both same-sector (n=l) and different-sector (n≠l) cases.
+    """
+    # Generate the g vector
+    g_vector = disaggregated_blocks.get_gnl_vector(n, l)
+
+    # Apply the g vector to the block
+    result = solution_blocks.apply_gnl_vector(n, l, g_vector)
+
+    # check that product of block dimensions is equal to g_vector length
+    assert result.shape[0] * result.shape[1] == g_vector.shape[0]
+
+    # check that flattened result (in column-major order) equals g_vector
+    assert np.allclose(result.flatten(), g_vector)
+
+    # Additional checks for specific cases
+    if n == l:
+        # For same sector blocks, verify it's a square matrix
+        assert result.shape[0] == result.shape[1]
+        # The shape should match the number of subsectors for that sector
+        sector = solution_blocks.aggregated_sectors_list[n - 1]
+        assert result.shape[0] == len(solution_blocks.sector_mapping[sector])
+
+
+def test_entire_solution(disaggregated_blocks, solution_blocks):
+    """Test applying all vectors to the solution blocks."""
+    for n in range(1, disaggregated_blocks.m + 1):
+        # Generate the vectors
+        x_n = disaggregated_blocks.get_xn_vector(n)
+        solution_blocks.apply_xn(n, x_n)
+
+    # Check that the output matches the original
+    assert np.allclose(
+        solution_blocks.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
+    )
