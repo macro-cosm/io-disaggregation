@@ -45,3 +45,58 @@ def test_problem_solution(default_problem, n, disaggregated_blocks):
 
     # check that m @ x = y
     assert np.allclose(m_matrix @ x, y_vector, rtol=2e-2)
+
+
+def test_solution_blocks_structure(default_problem):
+    """Test that the solution_blocks attribute is properly created and structured."""
+    solution = default_problem.solution_blocks
+    blocks = default_problem.disaggregation_blocks
+
+    # Test that original sectors are removed
+    for sector_id in blocks.to_disagg_sector_names:
+        assert sector_id not in solution.reordered_matrix.index
+        assert sector_id not in solution.reordered_matrix.columns
+        assert sector_id not in solution.output.index
+
+    # Test that new subsectors are added
+    for sector_id in blocks.to_disagg_sector_names:
+        subsectors = solution.sector_mapping[sector_id]
+        for subsector in subsectors:
+            # Check matrix indices
+            assert subsector in solution.reordered_matrix.index
+            assert subsector in solution.reordered_matrix.columns
+            # Check output series
+            assert subsector in solution.output.index
+            # Check that new entries are NaN
+            assert solution.reordered_matrix.loc[subsector].isna().all()
+            assert solution.reordered_matrix.loc[:, subsector].isna().all()
+            assert np.isnan(solution.output.loc[subsector])
+
+    # Test that non-disaggregated sectors are preserved with unchanged values
+    for idx in blocks.non_disagg_sector_names:
+        assert idx in solution.reordered_matrix.index
+        assert idx in solution.reordered_matrix.columns
+        assert idx in solution.output.index
+        np.testing.assert_array_equal(
+            solution.reordered_matrix.loc[idx, blocks.non_disagg_sector_names],
+            blocks.reordered_matrix.loc[idx, blocks.non_disagg_sector_names],
+        )
+
+    # Test sector mapping and lists
+    assert solution.aggregated_sectors_list == list(blocks.to_disagg_sector_names)
+    assert solution.non_disaggregated_sector_names == list(blocks.non_disagg_sector_names)
+
+
+def test_solution_blocks_apply_solution(default_problem, disaggregated_blocks):
+    """Test that we can apply the solution to the solution blocks."""
+    solution = default_problem.solution_blocks
+
+    # Apply solution for each sector
+    for n in range(1, disaggregated_blocks.m + 1):
+        x_n = disaggregated_blocks.get_xn_vector(n)
+        solution.apply_xn(n, x_n)
+
+    # Check that the result matches the original disaggregated matrix
+    assert np.allclose(
+        solution.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
+    )
