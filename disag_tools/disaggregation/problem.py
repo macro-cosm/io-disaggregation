@@ -104,7 +104,11 @@ class DisaggregationProblem:
         )
 
         # Create the solution blocks structure
-        solution = SolutionBlocks.from_disaggregation_blocks(blocks, disag_mapping)
+        solution = SolutionBlocks.from_disaggregation_blocks(
+            blocks,
+            disag_mapping,
+            weight_dict,
+        )
 
         # Create weights list for each sector being disaggregated
         weights = []

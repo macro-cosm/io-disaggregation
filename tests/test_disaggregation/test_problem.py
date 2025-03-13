@@ -70,7 +70,6 @@ def test_solution_blocks_structure(default_problem):
             # Check that new entries are NaN
             assert solution.reordered_matrix.loc[subsector].isna().all()
             assert solution.reordered_matrix.loc[:, subsector].isna().all()
-            assert np.isnan(solution.output.loc[subsector])
 
     # Test that non-disaggregated sectors are preserved with unchanged values
     for idx in blocks.non_disagg_sector_names:

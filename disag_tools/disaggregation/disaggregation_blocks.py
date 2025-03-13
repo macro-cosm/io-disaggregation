@@ -824,12 +824,13 @@ class DisaggregatedBlocks(DisaggregationBlocks):
             Array of relative weights (output shares) for each subsector
         """
         aggregated_sector = self.aggregated_sectors_list[n - 1]
-        # get the disaggregated sectors
-        disaggregated_sectors = self.sector_mapping[aggregated_sector]
+        return self.get_relative_output_weights_sector_id(aggregated_sector)
 
+    def get_relative_output_weights_sector_id(self, sector_id: SectorId):
+        # get the disaggregated sectors
+        disaggregated_sectors = self.sector_mapping[sector_id]
         indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
         disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
-
         output_vals = self.output.loc[disaggregated_sectors].values
         return output_vals / output_vals.sum()
 
