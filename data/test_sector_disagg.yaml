@@ -1,0 +1,13 @@
+sectors:
+  A:
+    subsectors:
+      A01:
+        name: Agriculture
+        relative_output_weights:
+          USA: 0.990
+          ROW: 0.915
+      A03:
+        name: Fishing
+        relative_output_weights:
+          USA: 0.010
+          ROW: 0.085

@@ -8,39 +8,12 @@ known data.
 import numpy as np
 import pytest
 
-from disag_tools.readers.disaggregation_blocks import (
+from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,
     unfold_countries,
 )
 from disag_tools.readers.icio_reader import ICIOReader
-
-
-@pytest.fixture(scope="session")
-def aggregated_blocks(usa_aggregated_reader: ICIOReader):
-    """Get the aggregated blocks for the USA."""
-    sectors_mapping = {"A": ["A01", "A03"]}
-    sectors_info = unfold_countries(usa_aggregated_reader.countries, sectors_mapping)
-    # setup blocks
-    aggregated_blocks = DisaggregationBlocks.from_technical_coefficients(
-        tech_coef=usa_aggregated_reader.technical_coefficients,
-        sectors_info=sectors_info,
-        output=usa_aggregated_reader.output_from_out,
-    )
-
-    return aggregated_blocks
-
-
-@pytest.fixture(scope="session")
-def disaggregated_blocks(usa_reader: ICIOReader):
-    """Get the disaggregated blocks for the USA."""
-    sectors_mapping = {"A": ["A01", "A03"]}
-    # setup blocks
-    disaggregated_blocks = DisaggregatedBlocks.from_reader(
-        reader=usa_reader, sector_mapping=sectors_mapping
-    )
-
-    return disaggregated_blocks
 
 
 def test_m1_block_equation(usa_reader: ICIOReader, usa_aggregated_reader: ICIOReader):
@@ -165,18 +138,18 @@ def test_m5_eqn(aggregated_blocks, disaggregated_blocks, n):
     disaggregated_sectors = disaggregated_blocks.sector_mapping[aggregated_sectors]
 
     indices = [
-        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        disaggregated_blocks.to_disagg_sector_names.index(sector)
         for sector in disaggregated_sectors
     ]
-    disaggregated_sectors = [disaggregated_blocks.disaggregated_sector_names[i] for i in indices]
+    disaggregated_sectors = [disaggregated_blocks.to_disagg_sector_names[i] for i in indices]
 
     F = disaggregated_blocks.reordered_matrix.loc[
-        disaggregated_sectors, disaggregated_blocks.non_disaggregated_sector_names
+        disaggregated_sectors, disaggregated_blocks.non_disagg_sector_names
     ].values
 
     # get the x_j/z_n vector
-    sector_n = aggregated_blocks.disaggregated_sector_names[n - 1]
-    x_j = aggregated_blocks.output.loc[aggregated_blocks.non_disaggregated_sector_names].values
+    sector_n = aggregated_blocks.to_disagg_sector_names[n - 1]
+    x_j = aggregated_blocks.output.loc[aggregated_blocks.non_disagg_sector_names].values
     z_n = aggregated_blocks.output.loc[sector_n]
     weights_vector = x_j / z_n
 
@@ -199,21 +172,17 @@ def test_m4_nl_eqn(aggregated_blocks, disaggregated_blocks, n, l):
     disaggregated_sectors_l = disaggregated_blocks.sector_mapping[aggregated_sector_l]
 
     indices_n = [
-        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        disaggregated_blocks.to_disagg_sector_names.index(sector)
         for sector in disaggregated_sectors_n
     ]
 
     indices_l = [
-        disaggregated_blocks.disaggregated_sector_names.index(sector)
+        disaggregated_blocks.to_disagg_sector_names.index(sector)
         for sector in disaggregated_sectors_l
     ]
 
-    disaggregated_sectors_n = [
-        disaggregated_blocks.disaggregated_sector_names[i] for i in indices_n
-    ]
-    disaggregated_sectors_l = [
-        disaggregated_blocks.disaggregated_sector_names[i] for i in indices_l
-    ]
+    disaggregated_sectors_n = [disaggregated_blocks.to_disagg_sector_names[i] for i in indices_n]
+    disaggregated_sectors_l = [disaggregated_blocks.to_disagg_sector_names[i] for i in indices_l]
 
     gnl = disaggregated_blocks.reordered_matrix.loc[
         disaggregated_sectors_n, disaggregated_sectors_l
@@ -290,11 +259,11 @@ def test_final_demand_block_equation(aggregated_blocks, disaggregated_blocks, n)
 
 @pytest.mark.parametrize("n", [1, 2])
 def test_large_equation(aggregated_blocks, disaggregated_blocks, n):
-    relative_output_weights = [
+    relative_output_weights_list = [
         disaggregated_blocks.get_relative_output_weights(l + 1)
         for l in range(disaggregated_blocks.m)
     ]
-    large_m = aggregated_blocks.get_large_m(n, relative_output_weights)
+    large_m = aggregated_blocks.get_large_m(n, relative_output_weights_list)
 
     x_n = disaggregated_blocks.get_xn_vector(n)
 

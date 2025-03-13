@@ -3,11 +3,16 @@
 import logging
 from pathlib import Path
 
-import pandas as pd
 import pytest
+import yaml
 
+from disag_tools.configurations import DisaggregationConfig
+from disag_tools.disaggregation.disaggregation_blocks import (
+    DisaggregatedBlocks,
+    DisaggregationBlocks,
+    unfold_countries,
+)
 from disag_tools.readers import ICIOReader
-from disag_tools.readers.disaggregation_blocks import DisaggregatedBlocks, DisaggregationBlocks
 
 # Sample data for testing with a small, known dataset
 SAMPLE_DATA = """CountryCol,,USA,USA,CHN,CHN,ROW,ROW
@@ -32,6 +37,38 @@ def data_dir() -> Path:
 def sector_config_path(data_dir: Path) -> Path:
     """Get the path to the sector disaggregation config file."""
     return data_dir / "sector_disagg_example.yaml"
+
+
+@pytest.fixture(scope="session")
+def real_disag_config(data_dir: Path, usa_reader) -> DisaggregationConfig:
+    """Create the disaggregation configuration with weights computed from actual data.
+
+    Instead of using hardcoded weights from the YAML file, this computes the weights
+    from the actual output values in the disaggregated data.
+    """
+    with open(data_dir / "test_sector_disagg.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    # Get the actual output values for A01 and A03
+    usa_a01_output = usa_reader.output_from_out.loc[("USA", "A01")]
+    usa_a03_output = usa_reader.output_from_out.loc[("USA", "A03")]
+    usa_total = usa_a01_output + usa_a03_output
+
+    row_a01_output = usa_reader.output_from_out.loc[("ROW", "A01")]
+    row_a03_output = usa_reader.output_from_out.loc[("ROW", "A03")]
+    row_total = row_a01_output + row_a03_output
+
+    # Compute relative weights
+    config_dict["sectors"]["A"]["subsectors"]["A01"]["relative_output_weights"] = {
+        "USA": usa_a01_output / usa_total,
+        "ROW": row_a01_output / row_total,
+    }
+    config_dict["sectors"]["A"]["subsectors"]["A03"]["relative_output_weights"] = {
+        "USA": usa_a03_output / usa_total,
+        "ROW": row_a03_output / row_total,
+    }
+
+    return DisaggregationConfig(**config_dict)
 
 
 @pytest.fixture(scope="session")
@@ -182,3 +219,30 @@ def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
 @pytest.fixture(scope="session")
 def usa_reader_blocks(usa_reader):
     return DisaggregatedBlocks.from_reader(usa_reader, sector_mapping={"A": ["A01", "A03"]})
+
+
+@pytest.fixture(scope="session")
+def aggregated_blocks(usa_aggregated_reader: ICIOReader):
+    """Get the aggregated blocks for the USA."""
+    sectors_mapping = {"A": ["A01", "A03"]}
+    sectors_info = unfold_countries(usa_aggregated_reader.countries, sectors_mapping)
+    # setup blocks
+    aggregated_blocks = DisaggregationBlocks.from_technical_coefficients(
+        tech_coef=usa_aggregated_reader.technical_coefficients,
+        sectors_info=sectors_info,
+        output=usa_aggregated_reader.output_from_out,
+    )
+
+    return aggregated_blocks
+
+
+@pytest.fixture(scope="session")
+def disaggregated_blocks(usa_reader: ICIOReader):
+    """Get the disaggregated blocks for the USA."""
+    sectors_mapping = {"A": ["A01", "A03"]}
+    # setup blocks
+    disaggregated_blocks = DisaggregatedBlocks.from_reader(
+        reader=usa_reader, sector_mapping=sectors_mapping
+    )
+
+    return disaggregated_blocks
