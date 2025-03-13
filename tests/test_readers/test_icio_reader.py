@@ -384,7 +384,7 @@ class TestICIOReader:
         tech_coef = reader_copy.technical_coefficients
 
         # Check that coefficients for USA-AGR column are all 0
-        assert (tech_coef[("USA", "AGR")] == 0).all()
+        assert (tech_coef[("USA", "AGR")] == 0).all()  # type: ignore
 
         # Other coefficients should still be valid
         assert np.isclose(
