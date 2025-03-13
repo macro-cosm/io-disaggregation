@@ -452,6 +452,110 @@ Y_agr = targets.get_target_vector_by_sector_id("A01")
 Y_usa_agr = targets.get_target_vector_by_sector_id(("USA", "A01"))
 ```
 
+### DisaggregationProblem Class
+
+The `DisaggregationProblem` class represents the complete disaggregation problem and its solution structure. It combines both the optimization problems that need to be solved and the structure that will hold the final disaggregated solution.
+
+#### Key Components
+
+1. **Problems List**
+   - Contains individual `SectorDisaggregationProblem` instances for each sector
+   - Each problem includes:
+     - Matrix M^n for optimization
+     - Target vector Y^n
+     - Sector information and mappings
+
+2. **Disaggregation Blocks**
+   - Original blocks containing the aggregated data
+   - Used as reference for the original structure
+   - Provides methods for extracting vectors and blocks
+
+3. **Solution Blocks**
+   - Structure that will hold the disaggregated solution
+   - Maintains the expanded matrix with placeholders for new subsectors
+   - Provides methods for applying solution vectors
+
+4. **Weights List**
+   - Contains relative output weights for each sector's subsectors
+   - Used in both problem formulation and solution application
+
+#### Creation from Configuration
+
+The class provides a `from_configuration` factory method that creates a complete problem instance:
+
+```python
+@classmethod
+def from_configuration(cls, config: DisaggregationConfig, reader: ICIOReader):
+    """Create a DisaggregationProblem from a configuration and reader."""
+```
+
+This method:
+1. Extracts mappings and weights from the configuration
+2. Creates the disaggregation blocks structure
+3. Creates the solution blocks structure
+4. Sets up individual sector problems
+5. Returns a complete problem instance
+
+#### Solution Structure
+
+The solution process involves:
+
+1. **Problem Setup**
+   ```python
+   problem = DisaggregationProblem.from_configuration(config, reader)
+   ```
+
+2. **Solving Individual Sectors**
+   ```python
+   for sector_problem in problem.problems:
+       # Solve optimization problem
+       x_n = solve_optimization(sector_problem.m_matrix, sector_problem.y_vector)
+       # Apply solution to the solution blocks
+       problem.solution_blocks.apply_xn(sector_problem.aggregated_sector.index, x_n)
+   ```
+
+3. **Accessing Results**
+   ```python
+   # Get the complete disaggregated matrix
+   result_matrix = problem.solution_blocks.reordered_matrix
+   ```
+
+#### Solution Blocks Structure
+
+The `solution_blocks` attribute maintains:
+
+1. **Matrix Structure**
+   - Expanded matrix with all subsectors
+   - NaN values in new subsector entries
+   - Preserved values for non-disaggregated sectors
+
+2. **Sector Mappings**
+   - `sector_mapping`: Maps original sectors to their subsectors
+   - `aggregated_sectors_list`: List of sectors being disaggregated
+   - `non_disaggregated_sector_names`: List of unchanged sectors
+
+3. **Solution Application**
+   - Methods for applying E, F, and G vectors
+   - Combined `apply_xn` method for complete sector solutions
+
+#### Example Usage
+
+```python
+# Create problem from configuration
+problem = DisaggregationProblem.from_configuration(config, reader)
+
+# Access solution structure
+solution = problem.solution_blocks
+
+# Apply solution for a sector
+x_n = compute_solution(problem.problems[0])  # Get solution vector
+solution.apply_xn(1, x_n)  # Apply to first sector
+
+# Check results
+assert not solution.reordered_matrix.isna().any().any()  # All values filled
+assert (solution.reordered_matrix >= 0).all().all()  # Non-negative
+```
+
 ## Usage Examples
 
 ### Basic Usage
