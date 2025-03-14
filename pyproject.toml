@@ -18,7 +18,11 @@ dependencies = [
     "cvxpy>=1.2.0",
     "pyyaml>=6.0.0",
     "pydantic>=2.5.0",
+    "click>=8.1.0",
 ]
+
+[project.scripts]
+disag = "disag_tools.cli:disaggregate"
 
 [project.optional-dependencies]
 dev = [

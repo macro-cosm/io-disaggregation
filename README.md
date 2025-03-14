@@ -14,6 +14,7 @@ A Python package to disagregate input-output tables. Developed by [José Moran](
 - Flexible sector disaggregation with configurable weights
 - Support for both single-region and multi-region tables
 - Comprehensive block structure for disaggregation problems
+- Command-line interface for easy disaggregation tasks
 
 ## Installation
 
@@ -32,7 +33,59 @@ pip install -e ".[dev]"
 
 ## Usage
 
-### Basic IO Table Operations
+### Command Line Interface
+
+The package provides a command-line interface for disaggregating IO tables:
+
+```bash
+# Basic usage
+disaggregate CONFIG_PATH INPUT_PATH OUTPUT_DIR
+
+# Example with all options
+disaggregate config.yaml input.csv output/ \
+    --prior-info prior_info.csv \
+    --final-demand-prior fd_prior.csv \
+    --lambda-sparse 1.0 \
+    --mu-prior 10.0 \
+    --log-level DEBUG
+```
+
+Arguments:
+
+- `CONFIG_PATH`: Path to YAML configuration file specifying disaggregation structure
+- `INPUT_PATH`: Path to input CSV file containing the IO table
+- `OUTPUT_DIR`: Directory to write output files to
+
+Options:
+
+- `--prior-info`: CSV file with prior information for technical coefficients
+- `--final-demand-prior`: CSV file with prior information for final demand
+- `--lambda-sparse`: Weight for L1 penalty on sparse terms (default: 1.0)
+- `--mu-prior`: Weight for L2 penalty on deviation from known terms (default: 10.0)
+- `--log-level`: Set logging level (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+
+Configuration File Format:
+
+```yaml
+sectors:
+  A:  # Sector to disaggregate
+    subsectors:
+      A01:  # First subsector
+        name: Agriculture
+        relative_output_weights:
+          USA: 0.990
+          ROW: 0.915
+      A03:  # Second subsector
+        name: Fishing
+        relative_output_weights:
+          USA: 0.010
+          ROW: 0.085
+```
+
+### Python API Usage
+
+#### Basic IO Table Operations
+
 ```python
 from disag_tools.readers import ICIOReader
 
@@ -51,37 +104,40 @@ final_demand = reader.final_demand
 intermediate = reader.intermediate_consumption
 ```
 
-### Sector Disaggregation
+#### Sector Disaggregation
+
 ```python
 from disag_tools.configurations import DisaggregationConfig
-from disag_tools.disaggregation.targets import DisaggregationTargets
+from disag_tools.disaggregation.problem import DisaggregationProblem
 
 # Load disaggregation configuration
 config = DisaggregationConfig(
     sectors={
-        "A01": {
+        "A": {
             "subsectors": {
-                "A01a": {
-                    "name": "Crop Production",
-                    "relative_output_weights": {"USA": 0.4, "ROW": 0.4}
+                "A01": {
+                    "name": "Agriculture",
+                    "relative_output_weights": {"USA": 0.990, "ROW": 0.915}
                 },
-                "A01b": {
-                    "name": "Animal Production",
-                    "relative_output_weights": {"USA": 0.6, "ROW": 0.6}
+                "A03": {
+                    "name": "Fishing",
+                    "relative_output_weights": {"USA": 0.010, "ROW": 0.085}
                 }
             }
         }
     }
 )
 
-# Get blocks for disaggregation
-blocks = reader.get_reordered_technical_coefficients(["A01"])
+# Create and solve disaggregation problem
+problem = DisaggregationProblem.from_configuration(
+    config=config,
+    reader=reader,
+    prior_df=None,  # Optional prior information
+    final_demand_prior_df=None  # Optional final demand prior
+)
 
-# Create targets instance
-targets = DisaggregationTargets(blocks, config)
-
-# Get target vector for sector A01
-Y = targets.get_target_vector_by_sector_id(("USA", "A01"))
+# Solve the problem
+problem.solve(lambda_sparse=1.0, mu_prior=10.0)
 ```
 
 ## Development
@@ -94,16 +150,21 @@ pytest tests/
 
 # Run tests with coverage
 pytest tests/ --cov=disag_tools
+
+# Run specific test
+pytest tests/test_cli.py::test_cli_real_data -v --log-cli-level=DEBUG
 ```
 
 ### Code Style
 
 The project uses:
+
 - Black for code formatting
 - isort for import sorting
 - mypy for type checking
 
 Run style checks:
+
 ```bash
 # Format code
 black .
@@ -124,7 +185,7 @@ For detailed documentation, see the `documentation.md` file in the repository. T
 - Configuration system guide
 - Usage examples and best practices
 - Development setup and guidelines
-
+- CLI tool reference and examples
 
 ## Author
 
