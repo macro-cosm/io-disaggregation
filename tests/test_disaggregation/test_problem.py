@@ -10,13 +10,6 @@ from disag_tools.disaggregation.problem import DisaggregationProblem
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture()
-def default_problem(real_disag_config, usa_aggregated_reader):
-    return DisaggregationProblem.from_configuration(
-        config=real_disag_config, reader=usa_aggregated_reader
-    )
-
-
 def test_sizes(default_problem):
     assert len(default_problem.problems) == 2
     assert len(default_problem.weights) == 2

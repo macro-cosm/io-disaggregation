@@ -246,3 +246,25 @@ def disaggregated_blocks(usa_reader: ICIOReader):
     )
 
     return disaggregated_blocks
+
+
+@pytest.fixture(scope="function")
+def default_problem(real_disag_config, usa_aggregated_reader):
+    """Get a default DisaggregationProblem instance for testing.
+
+    This fixture provides a DisaggregationProblem instance initialized with:
+    - The real disaggregation configuration (with weights from actual data)
+    - The USA aggregated reader (with A01 and A03 aggregated into sector A)
+
+    Args:
+        real_disag_config: Configuration with weights from actual data
+        usa_aggregated_reader: Reader with aggregated sectors
+
+    Returns:
+        DisaggregationProblem: Problem instance ready for testing
+    """
+    from disag_tools.disaggregation.problem import DisaggregationProblem
+
+    return DisaggregationProblem.from_configuration(
+        config=real_disag_config, reader=usa_aggregated_reader
+    )

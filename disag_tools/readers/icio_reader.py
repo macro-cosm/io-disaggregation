@@ -144,6 +144,21 @@ class ICIOReader:
                 "Index names must be ['CountryInd', 'industryInd'] for both rows and columns"
             )
 
+        # Filter out any columns with ("OUT", x) where x != "OUT" or (x, "OUT") where x != "OUT"
+        cols_to_keep = [
+            col
+            for col in data.columns
+            if not (
+                (
+                    isinstance(col, tuple) and col[0] == "OUT" and col[1] != "OUT"
+                )  # Filter ("OUT", x)
+                or (
+                    isinstance(col, tuple) and col[1] == "OUT" and col[0] != "OUT"
+                )  # Filter (x, "OUT")
+            )
+        ]
+        data = data[cols_to_keep]
+
         self.data = data
         self.countries = countries
         self.industries = industries
