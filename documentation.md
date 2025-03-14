@@ -815,3 +815,88 @@ The module is designed to handle multi-region tables correctly by:
 2. Maintaining proper dimensionality in block operations
 3. Ensuring consistent ordering of countries and sectors
 4. Handling the increased complexity of country-pair relationships
+
+# IO Table Disaggregation: Mathematical Formulation
+
+This document describes the mathematical formulation of the IO table disaggregation problem and its solution process.
+
+## Problem Structure
+
+Given an input-output table with technical coefficients matrix A, we want to disaggregate certain sectors into subsectors while maintaining consistency with the original aggregated data.
+
+### Matrix Structure
+
+The technical coefficients matrix is organized into blocks:
+```
+[A₀    B¹  B²  ... Bᵏ ]
+[C¹    D¹¹ D¹² ... D¹ᵏ]
+[C²    D²¹ D²² ... D²ᵏ]
+[...   ... ... ... ...]
+[Cᵏ    Dᵏ¹ ... ... Dᵏᵏ]
+```
+
+Where:
+- A₀: Technical coefficients between undisaggregated sectors
+- Bⁿ: Technical coefficients from undisaggregated to sector n
+- Cⁿ: Technical coefficients from sector n to undisaggregated
+- Dⁿˡ: Technical coefficients between sectors n and l
+
+### Variables
+
+For each sector n being disaggregated:
+- kₙ: Number of subsectors
+- wₙᵢ: Relative output weight of subsector i
+- xₙ: Solution vector containing [E, F, G, b] components where:
+  - E: Technical coefficients from undisaggregated to subsectors
+  - F: Technical coefficients from subsectors to undisaggregated
+  - G: Technical coefficients between subsectors
+  - b: Final demand coefficients for subsectors
+
+## Constraints
+
+The solution must satisfy several constraints to maintain consistency:
+
+1. **Weight Consistency**: Technical coefficients must respect output weights
+   - For undisaggregated to subsector flows (E block)
+   - For subsector to undisaggregated flows (F block)
+   - For flows between subsectors (G block)
+
+2. **Sum Preservation**: Disaggregated flows must sum to original aggregated flows
+   - For intermediate consumption
+   - For final demand
+
+3. **Non-negativity**: All technical coefficients must be non-negative
+
+## Solution Process
+
+1. **Problem Setup**
+   - Read input IO table and configuration
+   - Create block structure for each sector being disaggregated
+   - Set up constraint matrices and vectors
+
+2. **Optimization**
+   - For each sector n:
+     - Construct constraint matrix M and target vector y
+     - Solve optimization problem:
+       minimize    λ|X[sparse]| + μ|X[known] - prior|²
+       subject to  M@X = y
+                  X ≥ 0
+
+   Where:
+   - λ: Weight for L1 penalty on sparse terms
+   - μ: Weight for L2 penalty on deviation from prior information
+   - X[sparse]: Elements expected to be zero based on prior information
+   - X[known]: Elements with known values from prior information
+
+3. **Solution Assembly**
+   - Apply solutions to create disaggregated technical coefficients matrix
+   - Convert technical coefficients to intermediate use values
+   - Save output in CSV format
+
+## Output Format
+
+The output is a CSV file containing the disaggregated IO table with:
+- Original undisaggregated sectors preserved
+- New rows/columns for subsectors
+- Consistent technical coefficients that sum to original aggregated values
+- Preserved output weights as specified in configuration

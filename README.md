@@ -39,10 +39,10 @@ The package provides a command-line interface for disaggregating IO tables:
 
 ```bash
 # Basic usage
-disaggregate CONFIG_PATH INPUT_PATH OUTPUT_DIR
+python -m disag_tools.cli CONFIG_PATH INPUT_PATH OUTPUT_DIR
 
 # Example with all options
-disaggregate config.yaml input.csv output/ \
+python -m disag_tools.cli config.yaml input.csv output/ \
     --prior-info prior_info.csv \
     --final-demand-prior fd_prior.csv \
     --lambda-sparse 1.0 \
@@ -64,23 +64,44 @@ Options:
 - `--mu-prior`: Weight for L2 penalty on deviation from known terms (default: 10.0)
 - `--log-level`: Set logging level (DEBUG/INFO/WARNING/ERROR/CRITICAL)
 
-Configuration File Format:
+#### Complete Example: Disaggregating Agriculture
+
+Here's a complete example showing how to disaggregate the agriculture sector (A01) into two subsectors (A01a and A01b):
+
+1. Create a configuration file `examples/disagg_config.yaml`:
 
 ```yaml
 sectors:
-  A:  # Sector to disaggregate
+  A01:  # Agriculture sector to disaggregate
     subsectors:
-      A01:  # First subsector
-        name: Agriculture
+      A01a:  # First subsector
+        name: "Agriculture subsector A"
         relative_output_weights:
-          USA: 0.990
-          ROW: 0.915
-      A03:  # Second subsector
-        name: Fishing
+          USA: 0.3  # 30% of US agriculture output
+          # ROW weights not specified - will be assumed uniform with warning
+      A01b:  # Second subsector
+        name: "Agriculture subsector B"
         relative_output_weights:
-          USA: 0.010
-          ROW: 0.085
+          USA: 0.7  # 70% of US agriculture output
+          # ROW weights not specified - will be assumed uniform with warning
 ```
+
+Note: If ROW weights are not specified in the configuration, they will be assumed uniform across subsectors and a warning will be raised. In the example above, both A01a and A01b would get ROW weights of 0.5.
+
+2. Run the disaggregation:
+
+```bash
+python -m disag_tools.cli examples/disagg_config.yaml data/2021_SML_P.csv examples/ --log-level DEBUG
+```
+
+This will:
+
+- Read the input IO table from `data/2021_SML_P.csv`
+- Split sector A01 into A01a and A01b using the specified weights
+- Save the disaggregated table to `examples/disaggregated_table.csv`
+- Show detailed progress with DEBUG logging
+
+The output table will contain the new disaggregated sectors with their technical coefficients computed to maintain consistency with the original aggregated data while respecting the specified output weights.
 
 ### Python API Usage
 
