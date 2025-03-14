@@ -15,6 +15,7 @@ from disag_tools.disaggregation.disaggregation_blocks import (
     SectorInfo,
     unfold_countries,
 )
+from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
 from disag_tools.readers.icio_reader import ICIOReader
@@ -165,6 +166,7 @@ class DisaggregationProblem:
         problems: List of individual sector disaggregation problems
         disaggregation_blocks: Original blocks containing the aggregated data
         solution_blocks: Structure that will hold the disaggregated solution
+        final_demand_blocks: Structure that will hold the disaggregated final demand
         weights: List of weight arrays for each sector being disaggregated
         prior_blocks: Optional prior information for the problem
     """
@@ -172,6 +174,7 @@ class DisaggregationProblem:
     problems: list[SectorDisaggregationProblem]
     disaggregation_blocks: DisaggregationBlocks
     solution_blocks: SolutionBlocks
+    final_demand_blocks: FinalDemandBlocks
     weights: list[Array]
     prior_blocks: PriorBlocks | None = None
 
@@ -216,6 +219,13 @@ class DisaggregationProblem:
             blocks,
             disag_mapping,
             weight_dict,
+        )
+
+        # Create the final demand blocks structure
+        final_demand = FinalDemandBlocks.from_disaggregation_blocks(
+            final_demand_table=reader.final_demand_table,
+            output=blocks.output,
+            disagg_mapping=disag_mapping,
         )
 
         # Create weights list for each sector being disaggregated
@@ -266,12 +276,13 @@ class DisaggregationProblem:
             problems=problems,
             disaggregation_blocks=blocks,
             solution_blocks=solution,
+            final_demand_blocks=final_demand,
             weights=weights,
             prior_blocks=prior_blocks,
         )
 
     def solve(self, lambda_sparse: float = 1.0, mu_prior: float = 10.0) -> None:
-        """Solve all sector problems and apply solutions to solution_blocks.
+        """Solve all sector problems and apply solutions to solution_blocks and final_demand_blocks.
 
         Args:
             lambda_sparse: Weight for L1 penalty on sparse terms (default: 1.0)
@@ -280,3 +291,8 @@ class DisaggregationProblem:
         for n, problem in enumerate(self.problems, start=1):
             x_n = problem.solve(lambda_sparse=lambda_sparse, mu_prior=mu_prior)
             self.solution_blocks.apply_xn(n, x_n)
+
+            # Extract bn_vector from x_n (last k_n elements)
+            k_n = len(problem.disaggregated_sectors)
+            bn_vector = x_n[-k_n:]
+            self.final_demand_blocks.apply_bn_vector(n, bn_vector)

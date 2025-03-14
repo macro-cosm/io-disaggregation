@@ -254,3 +254,28 @@ def test_entire_solution(disaggregated_blocks, solution_blocks):
         solution_blocks.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
     )
     assert np.allclose(solution_blocks.output.values, disaggregated_blocks.output.values)
+
+
+def test_get_intermediate_use(disaggregated_blocks, solution_blocks, usa_reader):
+    """Test converting technical coefficients back to intermediate use values."""
+    # First verify that trying to get intermediate use before applying solutions raises an error
+    with pytest.raises(ValueError, match="Technical coefficients matrix contains NaN values"):
+        solution_blocks.get_intermediate_use()
+
+    # Apply solution for each sector
+    for n in range(1, disaggregated_blocks.m + 1):
+        x_n = disaggregated_blocks.get_xn_vector(n)
+        solution_blocks.apply_xn(n, x_n)
+
+    # Get the intermediate use table
+    intermediate_use = solution_blocks.get_intermediate_use()
+
+    # Verify against the original use table from the reader
+    # The reordered matrix should match the corresponding entries in the original use table
+    for row in intermediate_use.index:
+        for col in intermediate_use.columns:
+            assert np.allclose(
+                intermediate_use.loc[row, col],
+                usa_reader.data.loc[row, col],
+                rtol=1e-2,
+            ), f"Intermediate use does not match for {row}, {col}"

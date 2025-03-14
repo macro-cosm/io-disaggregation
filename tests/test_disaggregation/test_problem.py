@@ -22,6 +22,7 @@ def test_sizes(default_problem):
     assert len(default_problem.weights) == 2
     assert len(default_problem.weights[0]) == 2
     assert default_problem.disaggregation_blocks is not None
+    assert default_problem.final_demand_blocks is not None
 
 
 def test_no_prior_info(default_problem):
@@ -98,6 +99,36 @@ def test_solution_blocks_structure(default_problem):
     assert solution.non_disaggregated_sector_names == list(blocks.non_disagg_sector_names)
 
 
+def test_final_demand_blocks_structure(default_problem, usa_aggregated_reader):
+    """Test that the final_demand_blocks attribute is properly created and structured."""
+    final_demand = default_problem.final_demand_blocks
+    blocks = default_problem.disaggregation_blocks
+
+    # Test that original sectors are removed
+    for sector_id in blocks.to_disagg_sector_names:
+        assert sector_id not in final_demand.disaggregated_final_demand.index
+
+    # Test that new subsectors are added
+    for sector_id in blocks.to_disagg_sector_names:
+        subsectors = final_demand.disagg_mapping[sector_id]
+        for subsector in subsectors:
+            # Check matrix indices
+            assert subsector in final_demand.disaggregated_final_demand.index
+            # Check that new entries are NaN
+            assert final_demand.disaggregated_final_demand.loc[subsector].isna().all()
+
+    # Test that non-disaggregated sectors are preserved with unchanged values
+    for idx in blocks.non_disagg_sector_names:
+        assert idx in final_demand.disaggregated_final_demand.index
+        np.testing.assert_array_equal(
+            final_demand.disaggregated_final_demand.loc[idx],
+            usa_aggregated_reader.final_demand_table.loc[idx],
+        )
+
+    # Test sector mapping and lists
+    assert final_demand.aggregated_sectors_list == list(blocks.to_disagg_sector_names)
+
+
 def test_solution_blocks_apply_solution(default_problem, disaggregated_blocks):
     """Test that we can apply the solution to the solution blocks."""
     solution = default_problem.solution_blocks
@@ -111,6 +142,35 @@ def test_solution_blocks_apply_solution(default_problem, disaggregated_blocks):
     assert np.allclose(
         solution.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
     )
+
+
+def test_final_demand_blocks_apply_solution(
+    default_problem, disaggregated_blocks, usa_reader, usa_aggregated_reader
+):
+    """Test that we can apply the solution to the final demand blocks and verify total final demand matches the reader."""
+    final_demand = default_problem.final_demand_blocks
+
+    # Apply solution for each sector
+    for n in range(1, disaggregated_blocks.m + 1):
+        bn_vector = disaggregated_blocks.get_bn_vector(n)
+        final_demand.apply_bn_vector(n, bn_vector)
+
+    # For each aggregated sector, check that the sum of final demand across its subsectors
+    # equals the total final demand from the aggregated reader
+    for agg_sector in final_demand.aggregated_sectors_list:
+        subsectors = final_demand.disagg_mapping[agg_sector]
+
+        # Sum final demand across all subsectors and all columns
+        subsector_sum = final_demand.disaggregated_final_demand.loc[subsectors].sum().sum()
+
+        # Get total final demand from the aggregated reader for this sector
+        reader_sum = usa_aggregated_reader.final_demand_table.loc[agg_sector].sum()
+
+        assert np.allclose(
+            subsector_sum,
+            reader_sum,
+            rtol=1e-2,
+        ), f"Total final demand does not match reader for sector {agg_sector}"
 
 
 def test_solve_with_partial_prior(real_disag_config, usa_aggregated_reader, disaggregated_blocks):

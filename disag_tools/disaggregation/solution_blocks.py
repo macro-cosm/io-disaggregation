@@ -239,3 +239,37 @@ class SolutionBlocks:
         self.apply_e_vector(n, e_vector)
         self.apply_f_vector(n, f_vector)
         self.apply_gn_vector(n, g_vector)
+
+    def get_intermediate_use(self) -> pd.DataFrame:
+        """Convert technical coefficients to intermediate use values.
+
+        The technical coefficients matrix A is obtained from the use matrix U by:
+            A[i,j] = U[i,j] / output[j]
+
+        Therefore, to get U back:
+            U[i,j] = A[i,j] * output[j]
+
+        Returns:
+            DataFrame containing the intermediate use values with the same structure
+            as the technical coefficients matrix.
+
+        Raises:
+            ValueError: If the technical coefficients matrix contains NaN values,
+                indicating that solutions have not been fully applied.
+        """
+        # Check for NaN values in the technical coefficients
+        if self.reordered_matrix.isna().any().any():
+            raise ValueError(
+                "Technical coefficients matrix contains NaN values. "
+                "Solutions must be fully applied before getting intermediate use."
+            )
+
+        # For each column j, multiply by the output of sector j
+        intermediate_use = pd.DataFrame(
+            index=self.reordered_matrix.index, columns=self.reordered_matrix.columns, dtype=float
+        )
+
+        for col in self.reordered_matrix.columns:
+            intermediate_use[col] = self.reordered_matrix[col] * self.output[col]
+
+        return intermediate_use
