@@ -1,0 +1,13 @@
+sectors:
+  A01:
+    subsectors:
+      A01a:
+        name: "Agriculture subsector A"
+        relative_output_weights:
+          USA: 0.3
+          ROW: 0.4
+      A01b:
+        name: "Agriculture subsector B"
+        relative_output_weights:
+          USA: 0.7
+          ROW: 0.6
