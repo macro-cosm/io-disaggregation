@@ -430,7 +430,8 @@ class DisaggregationBlocks:
         """
         k = self.sectors[n - 1].k
         n_cols = sum(len(w) * k for w in relative_weights)
-        m3 = np.zeros((k, n_cols))
+        kl = len(relative_weights)
+        m3 = np.zeros((kl, n_cols))
         col_index = 0
         for i, weights in enumerate(relative_weights):
             block = self.get_m3_nl_block(n, weights)
