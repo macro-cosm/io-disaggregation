@@ -1,9 +1,12 @@
 """Pydantic models for disaggregation configuration."""
 
+import logging
 from itertools import product
 from typing import Tuple
 
 from pydantic import BaseModel, Field, NonNegativeFloat, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class SubsectorConfig(BaseModel):
@@ -101,6 +104,21 @@ class DisaggregationConfig(BaseModel):
         """Validate that at least one type of disaggregation is specified."""
         if not self.countries and not self.sectors:
             raise ValueError("Must specify at least one country or sector to disaggregate")
+
+        # Check if ROW is present in sector weights
+        if self.sectors:
+            for sector, config in self.sectors.items():
+                for subsector in config.subsectors.values():
+                    if "ROW" not in subsector.relative_output_weights:
+                        logger.warning(
+                            f"ROW not found in weights for sector {sector}. "
+                            "Uniform weights will be used for ROW."
+                        )
+                        # Set uniform weights for ROW
+                        n_subsectors = len(config.subsectors)
+                        for subsector in config.subsectors.values():
+                            subsector.relative_output_weights["ROW"] = 1.0 / n_subsectors
+
         return self
 
     @staticmethod
@@ -343,3 +361,28 @@ class DisaggregationConfig(BaseModel):
                         weights[(region, sector)] = weight
 
         return weights
+
+    def get_countries_to_keep(self) -> list[str]:
+        """Get list of countries that should be kept separate (not aggregated into ROW).
+
+        This includes:
+        1. Countries being disaggregated into regions
+        2. Countries mentioned in sector weights
+
+        Returns:
+            List of country codes to keep separate
+        """
+        countries = set()
+
+        # Add countries being disaggregated
+        if self.countries:
+            countries.update(self.countries.keys())
+
+        # Add countries with sector weights
+        if self.sectors:
+            for sector_config in self.sectors.values():
+                for subsector in sector_config.subsectors.values():
+                    countries.update(subsector.relative_output_weights.keys())
+
+        # Convert to sorted list
+        return sorted(countries)

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from disag_tools.configurations.config import DisaggregationConfig
+from disag_tools.disaggregation.bottom_blocks import BottomBlocks
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregationBlocks,
     SectorId,
@@ -167,6 +168,7 @@ class DisaggregationProblem:
         disaggregation_blocks: Original blocks containing the aggregated data
         solution_blocks: Structure that will hold the disaggregated solution
         final_demand_blocks: Structure that will hold the disaggregated final demand
+        bottom_blocks: Structure that will hold the VA and TLS rows
         weights: List of weight arrays for each sector being disaggregated
         prior_blocks: Optional prior information for the problem
     """
@@ -175,6 +177,7 @@ class DisaggregationProblem:
     disaggregation_blocks: DisaggregationBlocks
     solution_blocks: SolutionBlocks
     final_demand_blocks: FinalDemandBlocks
+    bottom_blocks: BottomBlocks
     weights: list[Array]
     prior_blocks: PriorBlocks | None = None
 
@@ -190,7 +193,7 @@ class DisaggregationProblem:
 
         Args:
             config: Configuration specifying the disaggregation structure
-            reader: Reader containing the input-output data
+            reader: Original ICIO reader used for the disaggregation
             prior_df: Optional DataFrame containing prior information with columns:
                 - For multi-country: [Country_row, Sector_row, Country_column, Sector_column, value]
                 - For single-country: [Sector_row, Sector_column, value]
@@ -202,6 +205,18 @@ class DisaggregationProblem:
             DisaggregationProblem instance containing both the problems to solve
             and the structure to hold the solution
         """
+        # Get list of countries to keep separate
+        countries_to_keep = config.get_countries_to_keep()
+
+        # If we have a subset of countries, create a new reader with ROW aggregation
+        if set(countries_to_keep) != set(reader.countries):
+            if reader.data_path is None:
+                raise ValueError(
+                    "Cannot perform country aggregation on reader without data_path. "
+                    "Please load reader from CSV file."
+                )
+            reader = ICIOReader.from_csv_selection(reader.data_path, countries_to_keep)
+
         mapping = config.get_simplified_mapping()
         disag_mapping = config.get_disagg_mapping()
         weight_dict = config.get_weight_dictionary()
@@ -226,6 +241,13 @@ class DisaggregationProblem:
             final_demand_table=reader.final_demand_table,
             output=blocks.output,
             disagg_mapping=disag_mapping,
+        )
+
+        # Create the bottom blocks structure
+        bottom = BottomBlocks.from_disaggregation_blocks(
+            reader=reader,
+            disagg_mapping=disag_mapping,
+            weight_dict=weight_dict,
         )
 
         # Create weights list for each sector being disaggregated
@@ -277,6 +299,7 @@ class DisaggregationProblem:
             disaggregation_blocks=blocks,
             solution_blocks=solution,
             final_demand_blocks=final_demand,
+            bottom_blocks=bottom,
             weights=weights,
             prior_blocks=prior_blocks,
         )

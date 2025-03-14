@@ -144,13 +144,107 @@ class ICIOReader:
                 "Index names must be ['CountryInd', 'industryInd'] for both rows and columns"
             )
 
+        # Filter out any columns with ("OUT", x) where x != "OUT" or (x, "OUT") where x != "OUT"
+        cols_to_keep = [
+            col
+            for col in data.columns
+            if not (
+                (
+                    isinstance(col, tuple) and col[0] == "OUT" and col[1] != "OUT"
+                )  # Filter ("OUT", x)
+                or (
+                    isinstance(col, tuple) and col[1] == "OUT" and col[0] != "OUT"
+                )  # Filter (x, "OUT")
+            )
+        ]
+        data = data[cols_to_keep]
+
         self.data = data
         self.countries = countries
         self.industries = industries
         self.data_path: Path | None = None
 
+        initial_shape = self.data.shape
+
+        # Sort the data according to the specified rules
+        self.data = self._sort_data(self.data)
+
         # Validate the data
         self.validate_data()
+
+        final_shape = self.data.shape
+        if initial_shape != final_shape:
+            raise ValueError(
+                f"Data shape changed from {initial_shape} to {final_shape} after sorting"
+            )
+
+    def _sort_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Sort the data according to the specified rules.
+
+        For columns:
+        - Within a country, first the industries and at the end the final demand columns
+        - Countries are sorted alphabetically
+        - Output is at the end
+
+        For indices:
+        - Countries first, sorted alphabetically
+        - At the end all the non country rows, ordered first as VA, then TLS, and the bottom row is OUT
+
+        Args:
+            data: DataFrame to sort
+
+        Returns:
+            DataFrame with sorted indices and columns
+        """
+        # First sort the columns
+        # Get all column tuples and separate them into categories
+        industry_cols = []
+        fd_cols = []
+        out_cols = []
+
+        for col in data.columns:
+            country, sector = col
+            if sector == "OUT":
+                out_cols.append(col)
+            elif any(sector.startswith(prefix) for prefix in self.FINAL_DEMAND_PREFIXES):
+                fd_cols.append(col)
+            else:
+                industry_cols.append(col)
+
+        # Sort industries within each country
+        industry_cols.sort(key=lambda x: (x[0], x[1]))  # Sort by country, then industry
+        fd_cols.sort(key=lambda x: (x[0], x[1]))  # Sort by country, then FD type
+
+        # Combine in the correct order: industries, final demand, output
+        sorted_cols = industry_cols + fd_cols + out_cols
+
+        # Now sort the indices
+        # Get all index tuples and separate them into categories
+        country_rows = []
+        va_rows = []
+        tls_rows = []
+        out_rows = []
+
+        for idx in data.index:
+            country, sector = idx
+            if country == "VA":
+                va_rows.append(idx)
+            elif country == "TLS":
+                tls_rows.append(idx)
+            elif country == "OUT":
+                out_rows.append(idx)
+            else:
+                country_rows.append(idx)
+
+        # Sort countries alphabetically and industries within countries
+        country_rows.sort(key=lambda x: (x[0], x[1]))
+
+        # Combine in the correct order: countries, VA, TLS, OUT
+        sorted_idx = country_rows + va_rows + tls_rows + out_rows
+
+        # Return reindexed DataFrame
+        return data.reindex(index=sorted_idx, columns=sorted_cols)
 
     @classmethod
     def from_csv(cls, csv_path: str | Path) -> "ICIOReader":
