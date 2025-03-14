@@ -354,3 +354,118 @@ def test_read_sector_weights(real_disag_config):
     assert weight_dict[("USA", "A03")] == pytest.approx(0.010, abs=1e-3)
     assert weight_dict[("ROW", "A01")] == pytest.approx(0.915, abs=1e-3)
     assert weight_dict[("ROW", "A03")] == pytest.approx(0.085, abs=1e-3)
+
+
+def test_row_warning_and_uniform_weights():
+    """Test that missing ROW weights trigger warning and uniform weights."""
+    # Create config without ROW weights
+    config = DisaggregationConfig.model_validate(
+        {
+            "sectors": {
+                "MFG": {
+                    "subsectors": {
+                        "MFG1": {
+                            "name": "Primary Manufacturing",
+                            "relative_output_weights": {"USA": 0.6, "CHN": 0.7},
+                        },
+                        "MFG2": {
+                            "name": "Secondary Manufacturing",
+                            "relative_output_weights": {"USA": 0.4, "CHN": 0.3},
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    # Check that ROW was added with uniform weights
+    assert "ROW" in config.sectors["MFG"].subsectors["MFG1"].relative_output_weights
+    assert "ROW" in config.sectors["MFG"].subsectors["MFG2"].relative_output_weights
+    assert config.sectors["MFG"].subsectors["MFG1"].relative_output_weights["ROW"] == 0.5
+    assert config.sectors["MFG"].subsectors["MFG2"].relative_output_weights["ROW"] == 0.5
+
+
+def test_get_countries_to_keep():
+    """Test getting list of countries to keep separate."""
+    # Create config with both country and sector disaggregation
+    config = DisaggregationConfig.model_validate(
+        {
+            "countries": {
+                "USA": {
+                    "regions": {
+                        "USA1": {
+                            "name": "Eastern USA",
+                            "sector_weights": {"AGR": 0.45, "MFG": 0.6},
+                        },
+                        "USA2": {
+                            "name": "Western USA",
+                            "sector_weights": {"AGR": 0.55, "MFG": 0.4},
+                        },
+                    }
+                }
+            },
+            "sectors": {
+                "MFG": {
+                    "subsectors": {
+                        "MFG1": {
+                            "name": "Primary Manufacturing",
+                            "relative_output_weights": {"USA": 0.6, "CHN": 0.7, "ROW": 0.5},
+                        },
+                        "MFG2": {
+                            "name": "Secondary Manufacturing",
+                            "relative_output_weights": {"USA": 0.4, "CHN": 0.3, "ROW": 0.5},
+                        },
+                    }
+                }
+            },
+        }
+    )
+
+    countries = config.get_countries_to_keep()
+    assert set(countries) == {"USA", "CHN", "ROW"}
+
+    # Test with only sector disaggregation
+    config = DisaggregationConfig.model_validate(
+        {
+            "sectors": {
+                "MFG": {
+                    "subsectors": {
+                        "MFG1": {
+                            "name": "Primary Manufacturing",
+                            "relative_output_weights": {"USA": 0.6, "CHN": 0.7, "ROW": 0.5},
+                        },
+                        "MFG2": {
+                            "name": "Secondary Manufacturing",
+                            "relative_output_weights": {"USA": 0.4, "CHN": 0.3, "ROW": 0.5},
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    countries = config.get_countries_to_keep()
+    assert set(countries) == {"USA", "CHN", "ROW"}
+
+    # Test with only country disaggregation
+    config = DisaggregationConfig.model_validate(
+        {
+            "countries": {
+                "USA": {
+                    "regions": {
+                        "USA1": {
+                            "name": "Eastern USA",
+                            "sector_weights": {"AGR": 0.45, "MFG": 0.6},
+                        },
+                        "USA2": {
+                            "name": "Western USA",
+                            "sector_weights": {"AGR": 0.55, "MFG": 0.4},
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    countries = config.get_countries_to_keep()
+    assert set(countries) == {"USA"}

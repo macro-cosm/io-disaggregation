@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from disag_tools.configurations.config import DisaggregationConfig
+from disag_tools.disaggregation.bottom_blocks import BottomBlocks
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregationBlocks,
     SectorId,
@@ -18,7 +19,6 @@ from disag_tools.disaggregation.disaggregation_blocks import (
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
-from disag_tools.disaggregation.bottom_blocks import BottomBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
 logger = logging.getLogger(__name__)
@@ -193,7 +193,7 @@ class DisaggregationProblem:
 
         Args:
             config: Configuration specifying the disaggregation structure
-            reader: Reader containing the input-output data
+            reader: Original ICIO reader used for the disaggregation
             prior_df: Optional DataFrame containing prior information with columns:
                 - For multi-country: [Country_row, Sector_row, Country_column, Sector_column, value]
                 - For single-country: [Sector_row, Sector_column, value]
@@ -205,6 +205,18 @@ class DisaggregationProblem:
             DisaggregationProblem instance containing both the problems to solve
             and the structure to hold the solution
         """
+        # Get list of countries to keep separate
+        countries_to_keep = config.get_countries_to_keep()
+
+        # If we have a subset of countries, create a new reader with ROW aggregation
+        if set(countries_to_keep) != set(reader.countries):
+            if reader.data_path is None:
+                raise ValueError(
+                    "Cannot perform country aggregation on reader without data_path. "
+                    "Please load reader from CSV file."
+                )
+            reader = ICIOReader.from_csv_selection(reader.data_path, countries_to_keep)
+
         mapping = config.get_simplified_mapping()
         disag_mapping = config.get_disagg_mapping()
         weight_dict = config.get_weight_dictionary()
