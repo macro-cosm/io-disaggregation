@@ -18,6 +18,7 @@ from disag_tools.disaggregation.disaggregation_blocks import (
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
+from disag_tools.disaggregation.bottom_blocks import BottomBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,7 @@ class DisaggregationProblem:
         disaggregation_blocks: Original blocks containing the aggregated data
         solution_blocks: Structure that will hold the disaggregated solution
         final_demand_blocks: Structure that will hold the disaggregated final demand
+        bottom_blocks: Structure that will hold the VA and TLS rows
         weights: List of weight arrays for each sector being disaggregated
         prior_blocks: Optional prior information for the problem
     """
@@ -175,6 +177,7 @@ class DisaggregationProblem:
     disaggregation_blocks: DisaggregationBlocks
     solution_blocks: SolutionBlocks
     final_demand_blocks: FinalDemandBlocks
+    bottom_blocks: BottomBlocks
     weights: list[Array]
     prior_blocks: PriorBlocks | None = None
 
@@ -228,6 +231,13 @@ class DisaggregationProblem:
             disagg_mapping=disag_mapping,
         )
 
+        # Create the bottom blocks structure
+        bottom = BottomBlocks.from_disaggregation_blocks(
+            reader=reader,
+            disagg_mapping=disag_mapping,
+            weight_dict=weight_dict,
+        )
+
         # Create weights list for each sector being disaggregated
         weights = []
         for sector in blocks.sectors:
@@ -277,6 +287,7 @@ class DisaggregationProblem:
             disaggregation_blocks=blocks,
             solution_blocks=solution,
             final_demand_blocks=final_demand,
+            bottom_blocks=bottom,
             weights=weights,
             prior_blocks=prior_blocks,
         )
