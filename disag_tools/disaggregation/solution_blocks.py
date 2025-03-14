@@ -20,7 +20,10 @@ class SolutionBlocks:
 
     @classmethod
     def from_disaggregation_blocks(
-        cls, blocks: DisaggregationBlocks, disaggregation_dict: dict[SectorId, list[SectorId]]
+        cls,
+        blocks: DisaggregationBlocks,
+        disaggregation_dict: dict[SectorId, list[SectorId]],
+        weight_dict: dict[SectorId, float],
     ) -> "SolutionBlocks":
         """Create a SolutionBlocks instance from DisaggregationBlocks and a disaggregation mapping.
 
@@ -33,6 +36,8 @@ class SolutionBlocks:
             blocks: DisaggregationBlocks instance containing the original matrix
             disaggregation_dict: Dictionary mapping each sector to its list of subsectors
                 e.g. {("ROW", "A"): [("ROW", "A01"), ("ROW", "A03")]}
+            weight_dict: Dictionary mapping each subsector to its relative output weight
+                e.g. {("ROW", "A01"): 0.6, ("ROW", "A03"): 0.4}
 
         Returns:
             SolutionBlocks instance with the expanded matrix and output series
@@ -45,6 +50,9 @@ class SolutionBlocks:
         for sector_id in blocks.to_disagg_sector_names:
             # Get the subsectors for this sector
             subsectors = disaggregation_dict[sector_id]
+
+            # Get the original sector's output before removing it
+            original_output = output[sector_id]
 
             # Remove the original sector's row and column
             matrix = matrix.drop(sector_id, axis=0)
@@ -59,9 +67,9 @@ class SolutionBlocks:
             all_cols = list(matrix.columns) + subsectors
             matrix = matrix.reindex(columns=all_cols, fill_value=np.nan)
 
-            # Add output entries for subsectors
+            # Add output entries for subsectors using weights
             for subsector in subsectors:
-                output.loc[subsector] = np.nan
+                output.loc[subsector] = original_output * weight_dict[subsector]
 
         # Create SectorInfo objects for the new sectors
         sectors = []
@@ -231,3 +239,37 @@ class SolutionBlocks:
         self.apply_e_vector(n, e_vector)
         self.apply_f_vector(n, f_vector)
         self.apply_gn_vector(n, g_vector)
+
+    def get_intermediate_use(self) -> pd.DataFrame:
+        """Convert technical coefficients to intermediate use values.
+
+        The technical coefficients matrix A is obtained from the use matrix U by:
+            A[i,j] = U[i,j] / output[j]
+
+        Therefore, to get U back:
+            U[i,j] = A[i,j] * output[j]
+
+        Returns:
+            DataFrame containing the intermediate use values with the same structure
+            as the technical coefficients matrix.
+
+        Raises:
+            ValueError: If the technical coefficients matrix contains NaN values,
+                indicating that solutions have not been fully applied.
+        """
+        # Check for NaN values in the technical coefficients
+        if self.reordered_matrix.isna().any().any():
+            raise ValueError(
+                "Technical coefficients matrix contains NaN values. "
+                "Solutions must be fully applied before getting intermediate use."
+            )
+
+        # For each column j, multiply by the output of sector j
+        intermediate_use = pd.DataFrame(
+            index=self.reordered_matrix.index, columns=self.reordered_matrix.columns, dtype=float
+        )
+
+        for col in self.reordered_matrix.columns:
+            intermediate_use[col] = self.reordered_matrix[col] * self.output[col]
+
+        return intermediate_use

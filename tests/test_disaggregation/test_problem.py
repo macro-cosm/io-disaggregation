@@ -1,7 +1,9 @@
 import logging
 
 import numpy as np
+import pandas as pd
 import pytest
+from numpy.testing import assert_allclose
 
 from disag_tools.disaggregation.problem import DisaggregationProblem
 
@@ -20,6 +22,17 @@ def test_sizes(default_problem):
     assert len(default_problem.weights) == 2
     assert len(default_problem.weights[0]) == 2
     assert default_problem.disaggregation_blocks is not None
+    assert default_problem.final_demand_blocks is not None
+
+
+def test_no_prior_info(default_problem):
+    """Test that prior information is None when not provided."""
+    # Check that problem-level prior blocks are None
+    assert default_problem.prior_blocks is None
+
+    # Check that each sector's prior vector is None
+    for problem in default_problem.problems:
+        assert problem.prior_vector is None
 
 
 @pytest.mark.parametrize("n", [1, 2])
@@ -70,7 +83,6 @@ def test_solution_blocks_structure(default_problem):
             # Check that new entries are NaN
             assert solution.reordered_matrix.loc[subsector].isna().all()
             assert solution.reordered_matrix.loc[:, subsector].isna().all()
-            assert np.isnan(solution.output.loc[subsector])
 
     # Test that non-disaggregated sectors are preserved with unchanged values
     for idx in blocks.non_disagg_sector_names:
@@ -87,6 +99,36 @@ def test_solution_blocks_structure(default_problem):
     assert solution.non_disaggregated_sector_names == list(blocks.non_disagg_sector_names)
 
 
+def test_final_demand_blocks_structure(default_problem, usa_aggregated_reader):
+    """Test that the final_demand_blocks attribute is properly created and structured."""
+    final_demand = default_problem.final_demand_blocks
+    blocks = default_problem.disaggregation_blocks
+
+    # Test that original sectors are removed
+    for sector_id in blocks.to_disagg_sector_names:
+        assert sector_id not in final_demand.disaggregated_final_demand.index
+
+    # Test that new subsectors are added
+    for sector_id in blocks.to_disagg_sector_names:
+        subsectors = final_demand.disagg_mapping[sector_id]
+        for subsector in subsectors:
+            # Check matrix indices
+            assert subsector in final_demand.disaggregated_final_demand.index
+            # Check that new entries are NaN
+            assert final_demand.disaggregated_final_demand.loc[subsector].isna().all()
+
+    # Test that non-disaggregated sectors are preserved with unchanged values
+    for idx in blocks.non_disagg_sector_names:
+        assert idx in final_demand.disaggregated_final_demand.index
+        np.testing.assert_array_equal(
+            final_demand.disaggregated_final_demand.loc[idx],
+            usa_aggregated_reader.final_demand_table.loc[idx],
+        )
+
+    # Test sector mapping and lists
+    assert final_demand.aggregated_sectors_list == list(blocks.to_disagg_sector_names)
+
+
 def test_solution_blocks_apply_solution(default_problem, disaggregated_blocks):
     """Test that we can apply the solution to the solution blocks."""
     solution = default_problem.solution_blocks
@@ -100,3 +142,109 @@ def test_solution_blocks_apply_solution(default_problem, disaggregated_blocks):
     assert np.allclose(
         solution.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
     )
+
+
+def test_final_demand_blocks_apply_solution(
+    default_problem, disaggregated_blocks, usa_reader, usa_aggregated_reader
+):
+    """Test that we can apply the solution to the final demand blocks and verify total final demand matches the reader."""
+    final_demand = default_problem.final_demand_blocks
+
+    # Apply solution for each sector
+    for n in range(1, disaggregated_blocks.m + 1):
+        bn_vector = disaggregated_blocks.get_bn_vector(n)
+        final_demand.apply_bn_vector(n, bn_vector)
+
+    # For each aggregated sector, check that the sum of final demand across its subsectors
+    # equals the total final demand from the aggregated reader
+    for agg_sector in final_demand.aggregated_sectors_list:
+        subsectors = final_demand.disagg_mapping[agg_sector]
+
+        # Sum final demand across all subsectors and all columns
+        subsector_sum = final_demand.disaggregated_final_demand.loc[subsectors].sum().sum()
+
+        # Get total final demand from the aggregated reader for this sector
+        reader_sum = usa_aggregated_reader.final_demand_table.loc[agg_sector].sum()
+
+        assert np.allclose(
+            subsector_sum,
+            reader_sum,
+            rtol=1e-2,
+        ), f"Total final demand does not match reader for sector {agg_sector}"
+
+
+def test_solve_with_partial_prior(real_disag_config, usa_aggregated_reader, disaggregated_blocks):
+    """Test solving with partial prior information from the real solution."""
+    # Use disaggregated_blocks as our real solution
+    real_solution = disaggregated_blocks.reordered_matrix
+    non_disagg_sectors = set(disaggregated_blocks.non_disagg_sector_names)
+
+    # Create prior information DataFrame from real solution
+    prior_data = []
+
+    # For each sector pair in the solution
+    for row_sector in real_solution.index:
+        for col_sector in real_solution.columns:
+            # Only include if at least one sector is disaggregated (not in non_disagg_sectors)
+            if row_sector not in non_disagg_sectors or col_sector not in non_disagg_sectors:
+                value = real_solution.loc[row_sector, col_sector]
+                if isinstance(row_sector, tuple):
+                    prior_data.append(
+                        {
+                            "Country_row": row_sector[0],
+                            "Sector_row": row_sector[1],
+                            "Country_column": col_sector[0],
+                            "Sector_column": col_sector[1],
+                            "value": value,
+                        }
+                    )
+                else:
+                    prior_data.append(
+                        {"Sector_row": row_sector, "Sector_column": col_sector, "value": value}
+                    )
+
+    # Convert to DataFrame
+    prior_df = pd.DataFrame(prior_data)
+
+    # Randomly set 35% of values to NaN
+    np.random.seed(42)  # For reproducibility
+    mask = np.random.choice(
+        [True, False], size=len(prior_df), p=[0.35, 0.65]  # 35% True (will be set to NaN)
+    )
+    prior_df.loc[mask, "value"] = np.nan
+
+    # Drop rows with NaN values
+    prior_df = prior_df.dropna()
+
+    # Create and solve problem with prior information
+    problem_with_prior = DisaggregationProblem.from_configuration(
+        real_disag_config, usa_aggregated_reader, prior_df=prior_df
+    )
+    problem_with_prior.solve(lambda_sparse=1.0, mu_prior=10.0)
+
+    # Get solution with prior
+    solution_with_prior = problem_with_prior.solution_blocks.reordered_matrix
+
+    # Calculate correlation between real solution and solution with prior
+    # Flatten both matrices and compute correlation
+    real_flat = real_solution.values.flatten()
+    prior_flat = solution_with_prior.values.flatten()
+
+    correlation = np.corrcoef(real_flat, prior_flat)[0, 1]
+    assert correlation > 0.5, f"Correlation {correlation} is too low"
+
+    # Also verify that where we had prior information, the values are close
+    for _, row in prior_df.iterrows():
+        if "Country_row" in row:
+            row_idx = (row["Country_row"], row["Sector_row"])
+            col_idx = (row["Country_column"], row["Sector_column"])
+        else:
+            row_idx = row["Sector_row"]
+            col_idx = row["Sector_column"]
+
+        assert_allclose(
+            solution_with_prior.loc[row_idx, col_idx],
+            row["value"],
+            atol=1e-2,
+            err_msg=f"Solution differs from prior at {row_idx}, {col_idx}",
+        )

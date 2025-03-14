@@ -6,7 +6,7 @@ from disag_tools.disaggregation.solution_blocks import SolutionBlocks
 
 # solution fixture
 @pytest.fixture(scope="function")
-def solution_blocks(aggregated_blocks):
+def solution_blocks(aggregated_blocks, disaggregated_blocks):
     """Create a SolutionBlocks instance for testing.
 
     This fixture is recomputed for each test function to ensure test isolation.
@@ -17,15 +17,27 @@ def solution_blocks(aggregated_blocks):
 
     # Create the full mapping for all countries
     disaggregation_dict = {}
+    weight_dict = {}
     for country in countries:
         for sector, subsectors in base_mapping.items():
-            disaggregation_dict[(country, sector)] = [(country, s) for s in subsectors]
+            sector_id = (country, sector)
+            subsector_ids = [(country, s) for s in subsectors]
+            disaggregation_dict[sector_id] = subsector_ids
+
+            # Compute weights from the output values
+            total_output = sum(disaggregated_blocks.output[sid] for sid in subsector_ids)
+            for subsector_id in subsector_ids:
+                weight_dict[subsector_id] = disaggregated_blocks.output[subsector_id] / total_output
 
     # Create solution blocks
-    return SolutionBlocks.from_disaggregation_blocks(aggregated_blocks, disaggregation_dict)
+    return SolutionBlocks.from_disaggregation_blocks(
+        aggregated_blocks,
+        disaggregation_dict,
+        weight_dict,
+    )
 
 
-def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
+def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks, disaggregated_blocks):
     """Test creating solution blocks from disaggregation blocks."""
     # Create the disaggregation dictionary for all countries
     base_mapping = {"A": ["A01", "A03"]}
@@ -33,12 +45,24 @@ def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
 
     # Create the full mapping for all countries
     disaggregation_dict = {}
+    weight_dict = {}
     for country in countries:
         for sector, subsectors in base_mapping.items():
-            disaggregation_dict[(country, sector)] = [(country, s) for s in subsectors]
+            sector_id = (country, sector)
+            subsector_ids = [(country, s) for s in subsectors]
+            disaggregation_dict[sector_id] = subsector_ids
+
+            # Compute weights from the output values
+            total_output = sum(disaggregated_blocks.output[sid] for sid in subsector_ids)
+            for subsector_id in subsector_ids:
+                weight_dict[subsector_id] = disaggregated_blocks.output[subsector_id] / total_output
 
     # Create solution blocks
-    solution = SolutionBlocks.from_disaggregation_blocks(aggregated_blocks, disaggregation_dict)
+    solution = SolutionBlocks.from_disaggregation_blocks(
+        aggregated_blocks,
+        disaggregation_dict,
+        weight_dict,
+    )
 
     # Test that original sectors are removed
     assert "A" not in solution.reordered_matrix.index.get_level_values(0)
@@ -53,15 +77,26 @@ def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
             # Check output series
             assert (country, subsector) in solution.output.index
 
-    # Test that new entries are NaN
+    # Test that new matrix entries are NaN
     for country in countries:
         for subsector1 in ["A01", "A03"]:
             # Check row entries
             assert solution.reordered_matrix.loc[(country, subsector1)].isna().all()
             # Check column entries
             assert solution.reordered_matrix.loc[:, (country, subsector1)].isna().all()
-            # Check output
-            assert np.isnan(solution.output.loc[(country, subsector1)])
+
+    # Test that output values are correctly set using weights
+    for country in countries:
+        sector_id = (country, "A")
+        original_output = aggregated_blocks.output[sector_id]
+        for subsector in ["A01", "A03"]:
+            subsector_id = (country, subsector)
+            expected_output = original_output * weight_dict[subsector_id]
+            assert np.allclose(solution.output[subsector_id], expected_output)
+            # Also verify against disaggregated blocks
+            assert np.allclose(
+                solution.output[subsector_id], disaggregated_blocks.output[subsector_id]
+            )
 
     # Test that non-disaggregated sectors are preserved
     for idx in aggregated_blocks.non_disagg_sector_names:
@@ -73,6 +108,7 @@ def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
             solution.reordered_matrix.loc[idx, aggregated_blocks.non_disagg_sector_names],
             aggregated_blocks.reordered_matrix.loc[idx, aggregated_blocks.non_disagg_sector_names],
         )
+        assert np.allclose(solution.output[idx], aggregated_blocks.output[idx])
 
     # Test that sectors list is correctly constructed
     # Each country's "A" sector should be replaced by A01 and A03
@@ -88,7 +124,7 @@ def test_solution_blocks_from_disaggregation_blocks(aggregated_blocks):
         assert sector.name == subsector  # Name should be the sector code
 
 
-def test_solution_blocks_sector_mapping(aggregated_blocks):
+def test_solution_blocks_sector_mapping(aggregated_blocks, disaggregated_blocks):
     """Test that sector mapping and aggregated sectors list are correctly set."""
     # Create the disaggregation dictionary for all countries
     base_mapping = {"A": ["A01", "A03"]}
@@ -99,12 +135,24 @@ def test_solution_blocks_sector_mapping(aggregated_blocks):
 
     # Create the full mapping for all countries
     disaggregation_dict = {}
+    weight_dict = {}
     for country in countries:
         for sector, subsectors in base_mapping.items():
-            disaggregation_dict[(country, sector)] = [(country, s) for s in subsectors]
+            sector_id = (country, sector)
+            subsector_ids = [(country, s) for s in subsectors]
+            disaggregation_dict[sector_id] = subsector_ids
+
+            # Compute weights from the output values
+            total_output = sum(disaggregated_blocks.output[sid] for sid in subsector_ids)
+            for subsector_id in subsector_ids:
+                weight_dict[subsector_id] = disaggregated_blocks.output[subsector_id] / total_output
 
     # Create solution blocks
-    solution = SolutionBlocks.from_disaggregation_blocks(aggregated_blocks, disaggregation_dict)
+    solution = SolutionBlocks.from_disaggregation_blocks(
+        aggregated_blocks,
+        disaggregation_dict,
+        weight_dict,
+    )
 
     # Test that sector_mapping is correctly set
     assert solution.sector_mapping == disaggregation_dict
@@ -205,3 +253,29 @@ def test_entire_solution(disaggregated_blocks, solution_blocks):
     assert np.allclose(
         solution_blocks.reordered_matrix.values, disaggregated_blocks.reordered_matrix.values
     )
+    assert np.allclose(solution_blocks.output.values, disaggregated_blocks.output.values)
+
+
+def test_get_intermediate_use(disaggregated_blocks, solution_blocks, usa_reader):
+    """Test converting technical coefficients back to intermediate use values."""
+    # First verify that trying to get intermediate use before applying solutions raises an error
+    with pytest.raises(ValueError, match="Technical coefficients matrix contains NaN values"):
+        solution_blocks.get_intermediate_use()
+
+    # Apply solution for each sector
+    for n in range(1, disaggregated_blocks.m + 1):
+        x_n = disaggregated_blocks.get_xn_vector(n)
+        solution_blocks.apply_xn(n, x_n)
+
+    # Get the intermediate use table
+    intermediate_use = solution_blocks.get_intermediate_use()
+
+    # Verify against the original use table from the reader
+    # The reordered matrix should match the corresponding entries in the original use table
+    for row in intermediate_use.index:
+        for col in intermediate_use.columns:
+            assert np.allclose(
+                intermediate_use.loc[row, col],
+                usa_reader.data.loc[row, col],
+                rtol=1e-2,
+            ), f"Intermediate use does not match for {row}, {col}"
