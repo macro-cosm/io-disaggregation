@@ -15,4 +15,6 @@ def test_disaggregation_problem(can_reader, canada_provincial_disagg_config):
         reader=can_reader, config=canada_provincial_disagg_config
     )
 
+    problem.solve()
+
     assert True
