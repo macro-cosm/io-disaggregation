@@ -136,11 +136,16 @@ class DisaggregationBlocks:
         if is_multi_region:
             # For multi-region tables, we need to handle country-sector pairs
             # First get all sectors that aren't being disaggregated
-            sector_codes = {s.sector for s in sectors}
             special_rows = ["OUT", "OUTPUT", "VA", "TLS"]
 
             # Split into undisaggregated and disaggregated
             undisaggregated = []
+            # Define sector_codes based on the type of sectors_info
+            if not isinstance(sectors_info[0][0], tuple):
+                sector_codes = {s[0] for s in sectors_info}  # Simple sector codes
+            else:
+                sector_codes = {s[0] for s in sectors_info}  # Tuple sector codes
+
             for idx in tech_coef.index:
                 if not isinstance(idx, tuple):
                     continue
@@ -148,8 +153,14 @@ class DisaggregationBlocks:
                 # Skip special rows and columns
                 if country in special_rows or sector in special_rows:
                     continue
-                if sector not in sector_codes:
-                    undisaggregated.append(idx)
+                # For simple sector codes, check if the sector part matches any to-be-disaggregated sector
+                if not isinstance(sectors_info[0][0], tuple):
+                    if sector not in sector_codes:
+                        undisaggregated.append(idx)
+                else:
+                    # For tuple sector codes, check exact matches
+                    if idx not in sector_codes:
+                        undisaggregated.append(idx)
 
             # Sort undisaggregated sectors by country, then sector
             def sort_key(x):
@@ -165,20 +176,20 @@ class DisaggregationBlocks:
 
             # Add sectors in the order they appear in sectors list
             for sector in sectors:
-
                 # Find all pairs that match this sector's code
-                matching_pairs = [
-                    idx
-                    for idx in tech_coef.index
-                    if isinstance(idx, tuple)
-                    and idx[0] not in special_rows
-                    and idx[1] == sector.sector
-                ]
-                # Add the sector's own pair first
-                if sector.sector_id not in seen_pairs and sector.sector_id in matching_pairs:
-                    disaggregated.append(sector.sector_id)
-                    seen_pairs.add(sector.sector_id)
-                # Then add any remaining pairs for this sector
+                if isinstance(sector.sector_id, tuple):
+                    # For tuple sector IDs, look for exact matches
+                    matching_pairs = [idx for idx in tech_coef.index if idx == sector.sector_id]
+                else:
+                    # For simple sector codes, look for pairs where the sector part matches
+                    matching_pairs = [
+                        idx
+                        for idx in tech_coef.index
+                        if isinstance(idx, tuple)
+                        and idx[0] not in special_rows
+                        and idx[1] == sector.sector
+                    ]
+                # Add matching pairs in sorted order
                 for pair in sorted(matching_pairs):
                     if pair not in seen_pairs:
                         disaggregated.append(pair)
@@ -193,6 +204,18 @@ class DisaggregationBlocks:
             disaggregated = [s.sector_id for s in sectors]
 
         disaggregated = sorted(disaggregated)
+
+        # Handle the case where sectors_info contains simple sector codes but we have a multi-region table
+        if is_multi_region and not isinstance(sectors_info[0][0], tuple):
+            # In this case, sectors_info has simple sector codes that should apply to all countries
+            sector_codes = {s[0] for s in sectors_info}  # Get the sector codes
+            # Keep country-sector pairs where the sector matches
+            disaggregated = [pair for pair in disaggregated if pair[1] in sector_codes]
+        else:
+            # Normal case - direct matching of sector IDs
+            sectors_info_names = [s[0] for s in sectors_info]
+            disaggregated = [s for s in disaggregated if s in sectors_info_names]
+
         # Create new order and reindex
         new_order = undisaggregated + disaggregated
         logger.debug(f"Final order: {new_order}")
@@ -897,3 +920,11 @@ def unfold_countries(
         for country in countries:
             sectors.append(((country, sector), sector, len(disagg_sectors)))
     return sectors
+
+
+def unfold_sectors_info(disagg_mapping: dict[SectorId, list[SectorId]]):
+    sectors_info = []
+    for key, value in disagg_mapping.items():
+        sector_name = key[1] if isinstance(key, tuple) else key
+        sectors_info.append((key, sector_name, len(value)))
+    return sectors_info

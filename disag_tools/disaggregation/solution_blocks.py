@@ -69,7 +69,7 @@ class SolutionBlocks:
 
             # Add output entries for subsectors using weights
             for subsector in subsectors:
-                output.loc[subsector] = original_output * weight_dict[subsector]
+                output.loc[subsector] = original_output * weight_dict.get(subsector, 0)
 
         # Create SectorInfo objects for the new sectors
         sectors = []

@@ -180,6 +180,11 @@ class DisaggregationConfig(BaseModel):
         if self.sectors:
             for sector, config in self.sectors.items():
                 mapping[sector] = sorted(config.subsectors.keys())
+        # if self.countries:
+        # for country, config in self.countries.items():
+        #     for region in config.regions.values():
+        #         for sector in region.sector_weights.keys():
+        #             mapping[(country, sector)] = [(region, sorted(region.sector_weights.keys())]
         return mapping
 
     def get_disagg_mapping(self) -> dict[tuple[str, str], list[tuple[str, str]]]:

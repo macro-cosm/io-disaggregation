@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from disag_tools.configurations import DisaggregationConfig
+from disag_tools.configurations import DisaggregationConfig, CountryConfig
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,
@@ -186,6 +186,11 @@ def usa_reader(icio_reader: ICIOReader) -> ICIOReader:
 
 
 @pytest.fixture(scope="session")
+def can_reader(data_dir):
+    return ICIOReader.from_csv_selection(data_dir / "2021_SML_P.csv", selected_countries=["CAN"])
+
+
+@pytest.fixture(scope="session")
 def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
     """
     Get a USA-only reader with A01 and A03 aggregated into sector "A".
@@ -268,3 +273,22 @@ def default_problem(real_disag_config, usa_aggregated_reader):
     return DisaggregationProblem.from_configuration(
         config=real_disag_config, reader=usa_aggregated_reader
     )
+
+
+@pytest.fixture(scope="function")
+def canada_country_disagg_config(data_dir: Path) -> CountryConfig:
+    """Get the disaggregation configuration for Canada."""
+    with open(data_dir / "canada_provinces" / "canada_provinces.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    # Extract just the CAN configuration
+    return CountryConfig(**config_dict["countries"]["CAN"])
+
+
+@pytest.fixture(scope="function")
+def canada_provincial_disagg_config(data_dir: Path) -> DisaggregationConfig:
+    """Get the disaggregation configuration for Canada."""
+    with open(data_dir / "canada_provinces" / "canada_provinces.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    return DisaggregationConfig(**config_dict)

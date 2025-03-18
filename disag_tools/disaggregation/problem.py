@@ -15,6 +15,7 @@ from disag_tools.disaggregation.disaggregation_blocks import (
     SectorId,
     SectorInfo,
     unfold_countries,
+    unfold_sectors_info,
 )
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
@@ -217,12 +218,11 @@ class DisaggregationProblem:
                 )
             reader = ICIOReader.from_csv_selection(reader.data_path, countries_to_keep)
 
-        mapping = config.get_simplified_mapping()
         disag_mapping = config.get_disagg_mapping()
         weight_dict = config.get_weight_dictionary()
 
         # Setup the disaggregation blocks
-        sectors_info = unfold_countries(reader.countries, mapping)
+        sectors_info = unfold_sectors_info(disag_mapping)
         blocks = DisaggregationBlocks.from_technical_coefficients(
             tech_coef=reader.technical_coefficients,
             sectors_info=sectors_info,
@@ -254,7 +254,7 @@ class DisaggregationProblem:
         weights = []
         for sector in blocks.sectors:
             subsectors = disag_mapping[sector.sector_id]
-            weights.append(np.array([weight_dict[subsector] for subsector in subsectors]))
+            weights.append(np.array([weight_dict.get(subsector, 0) for subsector in subsectors]))
 
         # Handle prior information if provided
         prior_blocks = None
