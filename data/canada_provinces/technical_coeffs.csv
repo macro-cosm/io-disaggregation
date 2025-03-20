@@ -1,4 +1,4 @@
-,ProvinceRow,IndustryRow,ProvinceColumn,IndustryColumn,technical_coeff
+,Country_row,Sector_row,Country_column,Sector_column,value
 0,CAN_AB,A01,CAN_AB,A01,0.3133372103946238
 1,CAN_AB,A03,CAN_AB,A01,3.69938658599324e-06
 2,CAN_AB,B05,CAN_AB,A01,0.0037643321005102

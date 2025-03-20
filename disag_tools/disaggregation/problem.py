@@ -187,7 +187,7 @@ class DisaggregationProblem:
         cls,
         config: DisaggregationConfig,
         reader: ICIOReader,
-        prior_df: Optional[pd.DataFrame] = None,
+        technical_coeffs_prior_df: Optional[pd.DataFrame] = None,
         final_demand_prior_df: Optional[pd.DataFrame] = None,
     ):
         """Create a DisaggregationProblem from a configuration and reader.
@@ -195,7 +195,7 @@ class DisaggregationProblem:
         Args:
             config: Configuration specifying the disaggregation structure
             reader: Original ICIO reader used for the disaggregation
-            prior_df: Optional DataFrame containing prior information with columns:
+            technical_coeffs_prior_df: Optional DataFrame containing prior information with columns:
                 - For multi-country: [Country_row, Sector_row, Country_column, Sector_column, value]
                 - For single-country: [Sector_row, Sector_column, value]
             final_demand_prior_df: Optional DataFrame containing final demand priors with columns:
@@ -258,9 +258,9 @@ class DisaggregationProblem:
 
         # Handle prior information if provided
         prior_blocks = None
-        if prior_df is not None:
+        if technical_coeffs_prior_df is not None:
             # Convert DataFrame to list of PriorInfo tuples
-            prior_info = _convert_prior_df_to_info(prior_df)
+            prior_info = _convert_prior_df_to_info(technical_coeffs_prior_df)
 
             # Convert final demand prior if provided
             final_demand_prior = None

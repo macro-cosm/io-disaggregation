@@ -10,7 +10,6 @@ import pandas as pd
 from disag_tools.disaggregation.constraints import (
     generate_M1_block,
     generate_M2_block,
-    generate_M4_block,
     generate_M5_block,
 )
 from disag_tools.readers.icio_reader import ICIOReader
@@ -692,6 +691,163 @@ class DisaggregatedBlocks(DisaggregationBlocks):
             output=output,
         )
 
+    @classmethod
+    def from_disaggregation_blocks(
+        cls,
+        blocks: DisaggregationBlocks,
+        disaggregation_dict: dict[SectorId, list[SectorId]],
+        weight_dict: dict[SectorId, float],
+        final_demand: pd.Series,
+    ) -> "DisaggregatedBlocks":
+
+        # Make copies to avoid modifying originals
+        matrix = blocks.reordered_matrix.copy()
+        output = blocks.output.copy()
+
+        final_demand = final_demand.copy()
+
+        old_outputs = {sector: output.loc[sector] for sector in blocks.to_disagg_sector_names}
+
+        # For each sector being disaggregated
+        for sector_id in blocks.to_disagg_sector_names:
+            # Get the subsectors for this sector
+            subsectors = disaggregation_dict[sector_id]
+
+            # Get the original sector's output before removing it
+            original_output = output[sector_id]
+
+            # Remove the original sector's row and column
+            matrix = matrix.drop(sector_id, axis=0)
+            matrix = matrix.drop(sector_id, axis=1)
+            output = output.drop(sector_id)
+            final_demand = final_demand.drop(sector_id)
+
+            # Add new rows and columns for subsectors
+            # First add rows
+            all_rows = list(matrix.index) + subsectors
+            matrix = matrix.reindex(index=all_rows, fill_value=np.nan)
+            final_demand = final_demand.reindex(index=all_rows, fill_value=np.nan)
+            # Then add columns
+            all_cols = list(matrix.columns) + subsectors
+            matrix = matrix.reindex(columns=all_cols, fill_value=np.nan)
+
+            # Add output entries for subsectors using weights
+            for subsector in subsectors:
+                output.loc[subsector] = original_output * weight_dict.get(subsector, 0)
+
+        # Create SectorInfo objects for the new sectors
+        sectors = []
+        for i, sector_id in enumerate(blocks.to_disagg_sector_names):
+            subsectors = disaggregation_dict[sector_id]
+            # For each subsector, create a SectorInfo with k=1 since it's already disaggregated
+            for subsector in subsectors:
+                name = str(subsector[1]) if isinstance(subsector, tuple) else str(subsector)
+                sectors.append(
+                    SectorInfo(index=len(sectors) + 1, sector_id=subsector, name=name, k=1)
+                )
+
+        aggregated_sectors_list = list(blocks.to_disagg_sector_names)
+        non_disagg_sector_names = list(blocks.non_disagg_sector_names)
+
+        # apply E block
+        for n in range(1, len(aggregated_sectors_list) + 1):
+            aggregated_sector = aggregated_sectors_list[n - 1]
+
+            b_vector = blocks.get_B(n)
+
+            disaggregated_sectors = disaggregation_dict[aggregated_sector]
+            k_n = len(disaggregated_sectors)
+            weights = np.array([weight_dict.get(sector, 0) for sector in disaggregated_sectors])
+            dims = (len(non_disagg_sector_names), k_n)
+            e_block = np.zeros(dims)
+            for i in range(dims[0]):
+                for j in range(dims[1]):
+                    e_block[i, j] = b_vector[i] / (k_n * weights[j])
+
+            matrix.loc[non_disagg_sector_names, disaggregated_sectors] = e_block
+
+        # apply F block:
+        for n in range(1, len(aggregated_sectors_list) + 1):
+            aggregated_sector = aggregated_sectors_list[n - 1]
+            disaggregated_sectors = disaggregation_dict[aggregated_sector]
+
+            c_n = blocks.get_C(n)
+
+            k_n = len(disaggregated_sectors)
+
+            dims = (k_n, len(non_disagg_sector_names))
+
+            f_block = np.zeros(dims)
+
+            for i in range(dims[0]):
+                for j in range(dims[1]):
+                    f_block[i, j] = c_n[j] / k_n
+
+            matrix.loc[disaggregated_sectors, non_disagg_sector_names] = f_block
+
+        # gnl guess
+        for n in range(1, len(aggregated_sectors_list) + 1):
+            for l in range(1, len(aggregated_sectors_list) + 1):
+                aggregated_sector_n = aggregated_sectors_list[n - 1]
+                aggregated_sector_l = aggregated_sectors_list[l - 1]
+
+                source_subsectors = disaggregation_dict[aggregated_sector_n]
+                target_subsectors = disaggregation_dict[aggregated_sector_l]
+
+                weights = np.array([weight_dict.get(sector, 0) for sector in target_subsectors])
+
+                k_n = len(source_subsectors)
+                k_l = len(target_subsectors)
+
+                g_block = np.zeros((k_n, k_l))
+
+                d_nl = blocks.get_D_nl(n, l)
+
+                for i in range(k_n):
+                    for j in range(k_l):
+                        g_block[i, j] = d_nl / (k_n * k_l * weights[j])
+
+                matrix.loc[source_subsectors, target_subsectors] = g_block
+
+        # final demand guess
+        for n in range(1, len(aggregated_sectors_list) + 1):
+            aggregated_sector = aggregated_sectors_list[n - 1]
+            disaggregated_sectors = disaggregation_dict[aggregated_sector]
+
+            weights = np.array([weight_dict.get(sector, 0) for sector in disaggregated_sectors])
+
+            k_n = len(disaggregated_sectors)
+
+            z_n = old_outputs[aggregated_sector]
+
+            c_n = blocks.get_C(n)
+
+            first_sum = np.sum(c_n * output.loc[non_disagg_sector_names].values) / (k_n * z_n)
+
+            second_sum = 0
+            for l in range(1, len(aggregated_sectors_list) + 1):
+                d_nl = blocks.get_D_nl(n, l)
+                second_sum += (
+                    d_nl
+                    * old_outputs[aggregated_sectors_list[l - 1]]
+                    / (old_outputs[aggregated_sector])
+                    * k_n
+                )
+
+            final_demand.loc[disaggregated_sectors] = weights - first_sum - second_sum
+
+        return cls(
+            sectors=sectors,
+            reordered_matrix=matrix,
+            to_disagg_sector_names=aggregated_sectors_list,
+            non_disagg_sector_names=non_disagg_sector_names,
+            sector_mapping=disaggregation_dict,
+            aggregated_sectors_list=aggregated_sectors_list,
+            m=len(aggregated_sectors_list),
+            final_demand=final_demand,
+            output=output,
+        )
+
     def get_e_vector(self, n: int) -> np.ndarray:
         """Get the E block for sector n (technical coefficients from undisaggregated sectors).
 
@@ -707,9 +863,9 @@ class DisaggregatedBlocks(DisaggregationBlocks):
         # get the disaggregated sectors
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
 
-        # get the aggregated sectors in disaggregated sectors keeping the ordering
-        indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
-        disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
+        # # get the aggregated sectors in disaggregated sectors keeping the ordering
+        # indices = [self.to_disagg_sector_names.index(sector) for sector in disaggregated_sectors]
+        # disaggregated_sectors = [self.to_disagg_sector_names[i] for i in indices]
 
         # get the block
         E = self.reordered_matrix.loc[self.non_disagg_sector_names, disaggregated_sectors].values

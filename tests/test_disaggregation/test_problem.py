@@ -211,7 +211,7 @@ def test_solve_with_partial_prior(real_disag_config, usa_aggregated_reader, disa
 
     # Create and solve problem with prior information
     problem_with_prior = DisaggregationProblem.from_configuration(
-        real_disag_config, usa_aggregated_reader, prior_df=prior_df
+        real_disag_config, usa_aggregated_reader, technical_coeffs_prior_df=prior_df
     )
     problem_with_prior.solve(lambda_sparse=1.0, mu_prior=10.0)
 

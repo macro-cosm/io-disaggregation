@@ -3,6 +3,7 @@
 import logging
 from pathlib import Path
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -292,3 +293,44 @@ def canada_provincial_disagg_config(data_dir: Path) -> DisaggregationConfig:
         config_dict = yaml.safe_load(f)
 
     return DisaggregationConfig(**config_dict)
+
+
+@pytest.fixture(scope="function")
+def canada_technical_coeffs_prior(data_dir: Path) -> pd.DataFrame:
+    path = data_dir / "canada_provinces" / "technical_coeffs.csv"
+    return pd.read_csv(path, index_col=0)
+
+
+@pytest.fixture(scope="function")
+def canada_final_demand_prior(data_dir: Path) -> pd.DataFrame:
+    path = data_dir / "canada_provinces" / "final_demand_prior.csv"
+    return pd.read_csv(path)
+
+
+@pytest.fixture
+def usa_planted_solution(aggregated_blocks, usa_aggregated_reader, usa_reader_blocks):
+    base_mapping = {"A": ["A01", "A03"]}
+    countries = list(aggregated_blocks.reordered_matrix.index.get_level_values(0).unique())
+
+    # Create the full mapping for all countries
+    disaggregation_dict = {}
+    weight_dict = {}
+    for country in countries:
+        for sector, subsectors in base_mapping.items():
+            sector_id = (country, sector)
+            subsector_ids = [(country, s) for s in subsectors]
+            disaggregation_dict[sector_id] = subsector_ids
+
+            # Compute weights from the output values
+            total_output = sum(usa_reader_blocks.output[sid] for sid in subsector_ids)
+            for subsector_id in subsector_ids:
+                weight_dict[subsector_id] = float(
+                    usa_reader_blocks.output[subsector_id] / total_output  # type: ignore
+                )
+
+    return DisaggregatedBlocks.from_disaggregation_blocks(
+        blocks=aggregated_blocks,
+        disaggregation_dict=disaggregation_dict,
+        weight_dict=weight_dict,
+        final_demand=usa_aggregated_reader.final_demand,
+    )

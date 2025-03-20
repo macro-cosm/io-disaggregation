@@ -153,7 +153,7 @@ config = DisaggregationConfig(
 problem = DisaggregationProblem.from_configuration(
     config=config,
     reader=reader,
-    prior_df=None,  # Optional prior information
+    technical_coeffs_prior_df=None,  # Optional prior information
     final_demand_prior_df=None  # Optional final demand prior
 )
 

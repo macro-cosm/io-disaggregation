@@ -113,6 +113,24 @@ class SolutionBlocks:
 
         return e_block
 
+    def apply_e_block_guess(self, n: int, b_n: np.ndarray, weights: np.ndarray):
+        aggregated_sector = self.aggregated_sectors_list[n - 1]
+        disaggregated_sectors = self.sector_mapping[aggregated_sector]
+
+        k_n = len(disaggregated_sectors)
+
+        dims = len(self.non_disaggregated_sector_names), k_n
+
+        e_block = np.zeros(dims)
+        # e_block[i,j] is b_n[i] / (k_n * weights[j])
+        for i in range(dims[0]):
+            for j in range(dims[1]):
+                e_block[i, j] = b_n[i] / (k_n * weights[j])
+
+        self.reordered_matrix.loc[self.non_disaggregated_sector_names, disaggregated_sectors] = (
+            e_block
+        )
+
     def e_vector_length(self, n: int) -> int:
         aggregated_sector = self.aggregated_sectors_list[n - 1]
         disaggregated_sectors = self.sector_mapping[aggregated_sector]
@@ -163,6 +181,24 @@ class SolutionBlocks:
 
         return f_block.shape[0] * f_block.shape[1]
 
+    def apply_f_block_guess(self, n: int, c_n: np.ndarray):
+        aggregated_sector = self.aggregated_sectors_list[n - 1]
+        disaggregated_sectors = self.sector_mapping[aggregated_sector]
+
+        k_n = len(disaggregated_sectors)
+
+        dims = k_n, len(self.non_disaggregated_sector_names)
+
+        f_block = np.zeros(dims)
+        # f_block[i,j] is c_n[j] / k_n
+        for i in range(dims[0]):
+            for j in range(dims[1]):
+                f_block[i, j] = c_n[j] / k_n
+
+        self.reordered_matrix.loc[disaggregated_sectors, self.non_disaggregated_sector_names] = (
+            f_block
+        )
+
     def apply_gnl_vector(self, n: int, l: int, g_vector: np.ndarray) -> np.ndarray:
         """Apply the G vector to the appropriate block in the matrix.
 
@@ -195,6 +231,25 @@ class SolutionBlocks:
         self.reordered_matrix.loc[source_subsectors, dest_subsectors] = g_block
 
         return g_block
+
+    def apply_gnl_block_guess(self, n: int, l: int, d_nl: float, weights: np.ndarray):
+        source_sector = self.aggregated_sectors_list[n - 1]
+        dest_sector = self.aggregated_sectors_list[l - 1]
+        source_subsectors = self.sector_mapping[source_sector]
+        dest_subsectors = self.sector_mapping[dest_sector]
+
+        k_n = len(source_subsectors)
+        k_l = len(dest_subsectors)
+
+        dims = k_n, k_l
+
+        g_block = np.zeros(dims)
+        # g_block[i,j] is d_nl / (weights[j] * k_n * k_l)
+        for i in range(dims[0]):
+            for j in range(dims[1]):
+                g_block[i, j] = d_nl / (weights[j] * k_n * k_l)
+
+        self.reordered_matrix.loc[source_subsectors, dest_subsectors] = g_block
 
     def g_nl_vector_length(self, n: int, l: int) -> int:
         source_sector = self.aggregated_sectors_list[n - 1]

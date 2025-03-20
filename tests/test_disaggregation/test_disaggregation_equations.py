@@ -272,3 +272,40 @@ def test_large_equation(aggregated_blocks, disaggregated_blocks, n):
     result2 = aggregated_blocks.get_y_vector(n, disaggregated_blocks.get_relative_output_weights(n))
 
     assert result == pytest.approx(result2, rel=1e-2), f"Large equation does not hold for n={n}"
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_planted_large_equation(
+    aggregated_blocks, usa_planted_solution, n, disaggregated_blocks, usa_reader_blocks
+):
+    base_mapping = {"A": ["A01", "A03"]}
+
+    disaggregation_dict = {}
+
+    countries = list(aggregated_blocks.reordered_matrix.index.get_level_values(0).unique())
+
+    weight_dict = {}
+    for country in countries:
+        for sector, subsectors in base_mapping.items():
+            sector_id = (country, sector)
+            subsector_ids = [(country, s) for s in subsectors]
+            disaggregation_dict[sector_id] = subsector_ids
+
+            # Compute weights from the output values
+            total_output = sum(usa_reader_blocks.output[sid] for sid in subsector_ids)
+            for subsector_id in subsector_ids:
+                weight_dict[subsector_id] = float(
+                    usa_reader_blocks.output[subsector_id] / total_output  # type: ignore
+                )
+
+    planted_xn = usa_planted_solution.get_xn_vector(n)
+
+    large_m = aggregated_blocks.get_large_m(n, weight_dict)
+
+    y_vector = aggregated_blocks.get_y_vector(n, weight_dict)
+
+    result = large_m @ planted_xn
+
+    assert result == pytest.approx(
+        y_vector, rel=1e-2
+    ), f"Planted large equation does not hold for n={n}"
