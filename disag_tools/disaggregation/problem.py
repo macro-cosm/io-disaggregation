@@ -14,12 +14,11 @@ from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregationBlocks,
     SectorId,
     SectorInfo,
-    unfold_countries,
     unfold_sectors_info,
 )
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 from disag_tools.disaggregation.planted_solution import PlantedSolution
-from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
+from disag_tools.disaggregation.prior_blocks import PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
 from disag_tools.readers.icio_reader import ICIOReader
 
@@ -56,7 +55,7 @@ def _convert_prior_df_to_info(prior_df: pd.DataFrame) -> list[PriorInfo]:
         for _, row in prior_df.iterrows():
             prior_info.append((row["Sector_row"], row["Sector_column"], row["value"]))
 
-    return prior_info
+    return prior_info  # type: ignore
 
 
 @dataclass
@@ -142,22 +141,21 @@ class SectorDisaggregationProblem:
         if self.prior_vector is not None:
             # Get indices where we have prior information
             known_mask = ~np.isnan(self.prior_vector)
-            known_values = self.prior_vector[known_mask]
 
             # Add L1 penalty for terms that should be sparse (prior = 0)
-            sparse_mask = (known_mask) & (self.prior_vector == 0)
+            sparse_mask = known_mask & (self.prior_vector == 0)
             if np.any(sparse_mask):
                 objective += lambda_sparse * cp.norm1(X[sparse_mask])
 
             # Add L2 penalty for deviation from known non-zero terms
-            known_nonzero = (known_mask) & (self.prior_vector > 0)
+            known_nonzero = known_mask & (self.prior_vector > 0)
             if np.any(known_nonzero):
                 objective += mu_prior * cp.sum_squares(
                     X[known_nonzero] - self.prior_vector[known_nonzero]
                 )
 
         # Solve the problem
-        prob = cp.Problem(cp.Minimize(objective), constraints)
+        prob = cp.Problem(cp.Minimize(objective), constraints)  # type: ignore
 
         # If we have an initial guess and want to use it, set it
         if use_initial_guess and initial_guess is not None:
