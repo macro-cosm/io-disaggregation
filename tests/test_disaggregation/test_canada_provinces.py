@@ -11,11 +11,6 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-def test_country_config_read(icio_reader, canada_provincial_disagg_config):
-    """Test that the Canada provinces configuration can be loaded correctly."""
-    assert True
-
-
 def test_disaggregation_problem(
     can_reader,
     canada_provincial_disagg_config,

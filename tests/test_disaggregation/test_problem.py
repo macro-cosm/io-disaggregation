@@ -6,6 +6,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from disag_tools.disaggregation.problem import DisaggregationProblem
+from disag_tools.disaggregation.planted_solution import PlantedSolution
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ def test_solve_with_partial_prior(real_disag_config, usa_aggregated_reader, disa
     problem_with_prior = DisaggregationProblem.from_configuration(
         real_disag_config, usa_aggregated_reader, technical_coeffs_prior_df=prior_df
     )
-    problem_with_prior.solve(lambda_sparse=1.0, mu_prior=10.0)
+    problem_with_prior.solve(lambda_sparse=1.0, mu_prior=10.0, use_planted_solution=False)
 
     # Get solution with prior
     solution_with_prior = problem_with_prior.solution_blocks.reordered_matrix
@@ -241,3 +242,39 @@ def test_solve_with_partial_prior(real_disag_config, usa_aggregated_reader, disa
             atol=1e-2,
             err_msg=f"Solution differs from prior at {row_idx}, {col_idx}",
         )
+
+
+def test_planted_solution_creation(default_problem):
+    """Test that we can create a planted solution and use it as an initial guess."""
+    # Verify that the planted solution's vectors satisfy the equations
+    for n in range(1, default_problem.disaggregation_blocks.K + 1):
+        # Get vectors from planted solution
+        E = default_problem.planted_solution.get_e_vector(n)
+        F = default_problem.planted_solution.get_f_vector(n)
+        G = default_problem.planted_solution.get_gn_vector(n)
+        b_n = default_problem.planted_solution.get_bn_vector(n)
+
+        # Get weights for this sector
+        weights = np.array(
+            [default_problem.weights[n - 1][i] for i in range(len(default_problem.weights[n - 1]))]
+        )
+
+        # Get matrices
+        M1 = default_problem.disaggregation_blocks.get_m1_block(n, weights)
+        M2 = default_problem.disaggregation_blocks.get_m2_block(n)
+        M3 = default_problem.disaggregation_blocks.get_m3_block(n, default_problem.weights)
+        M4 = default_problem.disaggregation_blocks.get_m4_block(n, default_problem.weights)
+        M5 = default_problem.disaggregation_blocks.get_m5_block(n)
+
+        # Get vectors from blocks
+        B = default_problem.disaggregation_blocks.get_B(n)
+        C = default_problem.disaggregation_blocks.get_C(n)
+        D = default_problem.disaggregation_blocks.get_D(n)
+
+        # Check equations
+        assert np.allclose(M1 @ E, B, rtol=1e-2), f"M1E ≠ B for sector {n}"
+        assert np.allclose(M2 @ F, C, rtol=1e-2), f"M2F ≠ C for sector {n}"
+        assert np.allclose(M3 @ G, D, rtol=1e-2), f"M3G ≠ D for sector {n}"
+        assert np.allclose(
+            M5 @ F + M4 @ G + b_n, weights, rtol=1e-2
+        ), f"Final demand equation does not hold for sector {n}"

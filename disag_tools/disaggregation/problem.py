@@ -18,6 +18,7 @@ from disag_tools.disaggregation.disaggregation_blocks import (
     unfold_sectors_info,
 )
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
+from disag_tools.disaggregation.planted_solution import PlantedSolution
 from disag_tools.disaggregation.prior_blocks import FinalDemandPriorInfo, PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
 from disag_tools.readers.icio_reader import ICIOReader
@@ -103,7 +104,13 @@ class SectorDisaggregationProblem:
             prior_vector=prior_vector,
         )
 
-    def solve(self, lambda_sparse: float = 1.0, mu_prior: float = 10.0) -> Array:
+    def solve(
+        self,
+        lambda_sparse: float = 1.0,
+        mu_prior: float = 10.0,
+        initial_guess: Array | None = None,
+        use_initial_guess: bool = True,
+    ) -> Array:
         """Solve the disaggregation problem.
 
         If prior information exists, solves:
@@ -114,6 +121,8 @@ class SectorDisaggregationProblem:
         Args:
             lambda_sparse: Weight for L1 penalty on sparse terms (default: 1.0)
             mu_prior: Weight for L2 penalty on deviation from known terms (default: 10.0)
+            initial_guess: Optional initial guess for the solution vector
+            use_initial_guess: Whether to use the initial guess (default: True)
 
         Returns:
             Solution vector X
@@ -149,12 +158,48 @@ class SectorDisaggregationProblem:
 
         # Solve the problem
         prob = cp.Problem(cp.Minimize(objective), constraints)
-        prob.solve()
 
-        if prob.status != cp.OPTIMAL:
-            raise RuntimeError(f"Problem could not be solved optimally. Status: {prob.status}")
+        # If we have an initial guess and want to use it, set it
+        if use_initial_guess and initial_guess is not None:
+            X.value = initial_guess
 
-        return X.value
+        prob.solve(warm_start=True)
+
+        # if prob.status != cp.OPTIMAL:
+        #     raise RuntimeError(f"Problem could not be solved optimally. Status: {prob.status}")
+
+        solution = X.value
+
+        if np.any(solution < 0):
+            logger.warning("Problem solved but may not be optimal. Status: %s", prob.status)
+            logger.debug(
+                f"Number of negative values in solution vector: {np.sum(solution < 0)}",
+            )
+            if initial_guess is not None:
+                # negative values in solution
+                negative_values = solution < 0
+                positive_guess = initial_guess >= 0
+                working_indices = np.logical_and(negative_values, positive_guess)
+
+                # if no working indices, raise error
+                if not np.any(working_indices):
+                    raise RuntimeError("No fix possible for negative values in solution.")
+
+                # find the most negative value in the solution, but that is positive in the initial guess
+                min_index = np.argmin(solution[working_indices])
+                min_value = solution[working_indices][min_index]
+
+                value_guess = initial_guess[working_indices][min_index]
+
+                factor = value_guess / (value_guess - min_value)
+
+                solution = factor * solution + (1 - factor) * initial_guess
+
+                logger.debug(f"Corrected negative values in solution vector.")
+
+            solution[solution < 0] = 0
+
+        return solution
 
 
 @dataclass
@@ -172,6 +217,7 @@ class DisaggregationProblem:
         bottom_blocks: Structure that will hold the VA and TLS rows
         weights: List of weight arrays for each sector being disaggregated
         prior_blocks: Optional prior information for the problem
+        planted_solution: Optional planted solution for testing
     """
 
     problems: list[SectorDisaggregationProblem]
@@ -181,6 +227,7 @@ class DisaggregationProblem:
     bottom_blocks: BottomBlocks
     weights: list[Array]
     prior_blocks: PriorBlocks | None = None
+    planted_solution: PlantedSolution | None = None
 
     @classmethod
     def from_configuration(
@@ -294,6 +341,13 @@ class DisaggregationProblem:
                 )
             )
 
+        # Create planted solution for testing
+        planted_solution = PlantedSolution.from_disaggregation_blocks(
+            blocks=blocks,
+            disaggregation_dict=disag_mapping,
+            weight_dict=weight_dict,
+        )
+
         return cls(
             problems=problems,
             disaggregation_blocks=blocks,
@@ -302,17 +356,34 @@ class DisaggregationProblem:
             bottom_blocks=bottom,
             weights=weights,
             prior_blocks=prior_blocks,
+            planted_solution=planted_solution,
         )
 
-    def solve(self, lambda_sparse: float = 1.0, mu_prior: float = 10.0) -> None:
+    def solve(
+        self,
+        lambda_sparse: float = 1.0,
+        mu_prior: float = 10.0,
+        use_planted_solution: bool = True,
+    ) -> None:
         """Solve all sector problems and apply solutions to solution_blocks and final_demand_blocks.
 
         Args:
             lambda_sparse: Weight for L1 penalty on sparse terms (default: 1.0)
             mu_prior: Weight for L2 penalty on deviation from known terms (default: 10.0)
+            use_planted_solution: Whether to use the planted solution as initial guess (default: True)
         """
         for n, problem in enumerate(self.problems, start=1):
-            x_n = problem.solve(lambda_sparse=lambda_sparse, mu_prior=mu_prior)
+            # If we have a planted solution and want to use it, get the appropriate vector
+            initial_guess = None
+            if use_planted_solution and self.planted_solution is not None:
+                initial_guess = self.planted_solution.get_xn_vector(n)
+
+            x_n = problem.solve(
+                lambda_sparse=lambda_sparse,
+                mu_prior=mu_prior,
+                initial_guess=initial_guess,
+                use_initial_guess=use_planted_solution,
+            )
             self.solution_blocks.apply_xn(n, x_n)
 
             # Extract bn_vector from x_n (last k_n elements)

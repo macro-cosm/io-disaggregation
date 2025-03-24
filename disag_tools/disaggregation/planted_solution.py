@@ -110,7 +110,10 @@ class PlantedSolution:
             e_block = np.zeros(dims)
             for i in range(dims[0]):
                 for j in range(dims[1]):
-                    e_block[i, j] = b_vector[i] / (k_n * weights[j])
+                    if weights[j] > 0:
+                        e_block[i, j] = b_vector[i] / (k_n * weights[j])
+                    else:
+                        e_block[i, j] = 0
             matrix.loc[non_disagg_sector_names, disaggregated_sectors] = e_block
 
         # Apply F block
@@ -140,7 +143,10 @@ class PlantedSolution:
                 d_nl = blocks.get_D_nl(n, l)
                 for i in range(k_n):
                     for j in range(k_l):
-                        g_block[i, j] = d_nl / (k_n * k_l * weights[j])
+                        if weights[j] > 0:  # Only divide if weight is positive
+                            g_block[i, j] = d_nl / (k_n * k_l * weights[j])
+                        else:
+                            g_block[i, j] = 0  # Set to zero if weight is zero
                 matrix.loc[source_subsectors, target_subsectors] = g_block
 
         # get all relative weights for all sectors
