@@ -1,9 +1,6 @@
 import logging
-import pytest
-from pathlib import Path
 
 from disag_tools.assembler import AssembledData
-from disag_tools.configurations.config import DisaggregationConfig
 from disag_tools.disaggregation.problem import DisaggregationProblem
 
 # Configure logging
