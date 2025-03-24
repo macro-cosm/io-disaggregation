@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import pandas as pd
 
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 
@@ -31,6 +32,118 @@ def final_demand_blocks(disaggregated_blocks, aggregated_blocks, usa_aggregated_
         output=aggregated_blocks.output,
         disagg_mapping=disagg_mapping,
     )
+
+
+def test_regional_disaggregation_detection():
+    """Test that regional disaggregation is correctly detected."""
+    # Create a simple final demand table
+    index = pd.MultiIndex.from_tuples([("USA", "A"), ("ROW", "A")])
+    columns = pd.MultiIndex.from_tuples([("USA", "HFCE"), ("ROW", "HFCE")])
+    final_demand = pd.DataFrame(np.ones((2, 2)), index=index, columns=columns)
+    output = pd.Series(np.ones(2), index=index)
+
+    # Test 1: Sectoral disaggregation (should not be detected as regional)
+    sectoral_mapping = {
+        ("USA", "A"): [("USA", "A1"), ("USA", "A2")],
+        ("ROW", "A"): [("ROW", "A1"), ("ROW", "A2")],
+    }
+    blocks = FinalDemandBlocks.from_disaggregation_blocks(
+        final_demand_table=final_demand,
+        output=output,
+        disagg_mapping=sectoral_mapping,
+    )
+    # No error should be raised since region_outputs is not required
+
+    # Test 2: Regional disaggregation (should be detected)
+    regional_mapping = {
+        ("USA", "A"): [("USA1", "A"), ("USA2", "A")],
+    }
+    with pytest.raises(
+        ValueError, match="region_outputs must be provided for regional disaggregation"
+    ):
+        FinalDemandBlocks.from_disaggregation_blocks(
+            final_demand_table=final_demand,
+            output=output,
+            disagg_mapping=regional_mapping,
+        )
+
+    # Test 3: Mixed disaggregation (should be detected as regional)
+    mixed_mapping = {
+        ("USA", "A"): [("USA1", "A"), ("USA2", "A")],
+        ("ROW", "A"): [("ROW", "A1"), ("ROW", "A2")],
+    }
+    with pytest.raises(
+        ValueError, match="region_outputs must be provided for regional disaggregation"
+    ):
+        FinalDemandBlocks.from_disaggregation_blocks(
+            final_demand_table=final_demand,
+            output=output,
+            disagg_mapping=mixed_mapping,
+        )
+
+
+def test_canada_regional_disaggregation(can_reader):
+    """Test regional disaggregation using the Canada provinces case."""
+    # Create mapping from CAN to provinces for each sector
+    provinces = [
+        "CAN_AB",
+        "CAN_BC",
+        "CAN_MB",
+        "CAN_NB",
+        "CAN_NL",
+        "CAN_NS",
+        "CAN_ON",
+        "CAN_PE",
+        "CAN_QC",
+        "CAN_SK",
+    ]
+    sectors = list(can_reader.industries)
+
+    # Create disaggregation mapping
+    disagg_mapping = {}
+    for sector in sectors:
+        can_sector = ("CAN", sector)
+        province_sectors = [(prov, sector) for prov in provinces]
+        disagg_mapping[can_sector] = province_sectors
+
+    # Create region outputs (for now, equal split between provinces)
+    region_outputs = pd.Series(
+        index=provinces,
+        data=1.0,  # We'll set this to 1.0 for now, just to test the structure
+    )
+
+    # Create FinalDemandBlocks instance
+    blocks = FinalDemandBlocks.from_disaggregation_blocks(
+        final_demand_table=can_reader.final_demand_table,
+        output=can_reader.output_from_out,
+        disagg_mapping=disagg_mapping,
+        region_outputs=region_outputs,
+    )
+
+    # Test that the structure is correct
+    # 1. Check that all provinces are in the index
+    for province in provinces:
+        assert any(
+            province == idx[0] for idx in blocks.disaggregated_final_demand.index
+        ), f"Province {province} not found in index"
+
+    # 2. Check that all provinces are in the columns (for final demand destinations)
+    for province in provinces:
+        assert any(
+            province == col[0] for col in blocks.disaggregated_final_demand.columns
+        ), f"Province {province} not found in columns"
+
+    # 3. Check that ratios are properly structured
+    assert set(blocks.ratios.index.get_level_values(0)) == set(
+        blocks.disaggregated_final_demand.index.get_level_values(0)
+    )
+    assert set(blocks.ratios.columns.get_level_values(0)) == set(
+        blocks.disaggregated_final_demand.columns.get_level_values(0)
+    )
+
+    # 4. Check that ratios sum to 1 for each sector across provinces
+    row_sum = blocks.ratios.sum(axis=1)
+    assert np.allclose(row_sum, 1.0), "Ratios do not sum to 1 across provinces for each sector"
 
 
 def test_final_demand_values(disaggregated_blocks, usa_reader):
