@@ -325,6 +325,6 @@ class SolutionBlocks:
         )
 
         for col in self.reordered_matrix.columns:
-            intermediate_use[col] = self.reordered_matrix[col] * self.output[col]
+            intermediate_use.loc[:, col] = self.reordered_matrix.loc[:, col] * self.output.loc[col]
 
         return intermediate_use

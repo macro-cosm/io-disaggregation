@@ -1,14 +1,13 @@
 """Tests for the command line interface."""
 
 import logging
-from pathlib import Path
 
-import pandas as pd
 import pytest
 import yaml
 from click.testing import CliRunner
 
 from disag_tools.cli import disaggregate
+from disag_tools.readers import ICIOReader
 
 
 @pytest.fixture
@@ -272,7 +271,12 @@ def test_cli_real_data(
     assert output_file.exists()
 
     # Load the output data and check that it has the expected structure
-    output_data = pd.read_csv(output_file, index_col=[0, 1], header=[0, 1])
+    # output_data = pd.read_csv(output_file, index_col=[0, 1], header=[0, 1])
+
+    output_icio = ICIOReader.from_csv(output_file)
+
+    output_data = output_icio.data
+
     assert ("USA", "A01") in output_data.index
     assert ("USA", "A03") in output_data.index
     assert ("ROW", "A01") in output_data.index

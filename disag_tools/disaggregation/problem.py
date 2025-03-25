@@ -286,6 +286,7 @@ class DisaggregationProblem:
             final_demand_table=reader.final_demand_table,
             output=blocks.output,
             disagg_mapping=disag_mapping,
+            region_outputs=solution.output.groupby(level=0).sum(),
         )
 
         # Create the bottom blocks structure
