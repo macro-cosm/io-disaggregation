@@ -1,12 +1,11 @@
 import logging
 
+import numpy as np
 import pytest
 
 from disag_tools.assembler import AssembledData
 from disag_tools.disaggregation.problem import DisaggregationProblem
 from disag_tools.readers import ICIOReader
-
-import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

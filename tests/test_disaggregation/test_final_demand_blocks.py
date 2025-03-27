@@ -1,8 +1,8 @@
 """Tests for the FinalDemandBlocks class."""
 
 import numpy as np
-import pytest
 import pandas as pd
+import pytest
 
 from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 

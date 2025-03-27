@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 from numpy.testing import assert_allclose
 
-from disag_tools.disaggregation.problem import DisaggregationProblem
 from disag_tools.disaggregation.planted_solution import PlantedSolution
+from disag_tools.disaggregation.problem import DisaggregationProblem
 
 logger = logging.getLogger(__name__)
 

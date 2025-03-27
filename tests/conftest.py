@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from disag_tools.configurations import DisaggregationConfig, CountryConfig
+from disag_tools.configurations import CountryConfig, DisaggregationConfig
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,

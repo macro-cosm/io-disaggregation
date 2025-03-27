@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 
 from disag_tools.disaggregation.disaggregation_blocks import (
+    DisaggregatedBlocks,
     DisaggregationBlocks,
     SectorInfo,
-    DisaggregatedBlocks,
 )
 from disag_tools.readers.icio_reader import ICIOReader
 
