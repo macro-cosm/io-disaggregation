@@ -30,9 +30,9 @@ def test_disaggregation_problem(
     )
 
     # # Keep only top 50% of values
-    # canada_technical_coeffs_prior = canada_technical_coeffs_prior[
-    #     canada_technical_coeffs_prior["value"] >= threshold
-    # ].copy()
+    canada_technical_coeffs_prior = canada_technical_coeffs_prior[
+        canada_technical_coeffs_prior["value"] >= threshold
+    ].copy()
 
     logger.debug(f"Using {len(canada_technical_coeffs_prior)} prior constraints")
 
