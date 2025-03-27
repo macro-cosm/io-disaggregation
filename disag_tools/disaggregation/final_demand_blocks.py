@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from disag_tools.disaggregation.disaggregation_blocks import SectorInfo
+from disag_tools.disaggregation.utils import _check_regional
 
 SectorId: TypeAlias = str | tuple[str, str]
 
@@ -283,20 +284,6 @@ class FinalDemandBlocks:
                     self.disaggregated_final_demand.loc[subsector, col] = bn_vector[i] * ratio
 
         return bn_vector
-
-
-def _check_regional(disagg_mapping: dict[SectorId, list[SectorId]]) -> bool:
-    is_regional = False
-    for key, value in disagg_mapping.items():
-        if isinstance(key, tuple):
-            first_country = key[0]
-            # Only check if any subsector has a different country code
-            regionalised = any(
-                isinstance(subsector, tuple) and subsector[0] != first_country
-                for subsector in value
-            )
-            is_regional = is_regional or regionalised
-    return is_regional
 
 
 def _get_country_regions(disagg_mapping: dict[SectorId, list[SectorId]]) -> dict[str, list[str]]:

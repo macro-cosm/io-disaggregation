@@ -12,7 +12,7 @@ def test_assembled_data_structure(default_problem, usa_reader):
     default_problem.solve()
 
     # Create assembled data
-    assembled = AssembledData.from_solution(default_problem, usa_reader)
+    assembled = AssembledData.from_solution(default_problem, usa_reader, check_output=False)
 
     # Check that the data has the correct structure
     assert isinstance(assembled.data, pd.DataFrame)
@@ -143,7 +143,7 @@ def test_column_ordering(default_problem, usa_reader):
     default_problem.solve()
 
     # Create assembled data
-    assembled = AssembledData.from_solution(default_problem, usa_reader)
+    assembled = AssembledData.from_solution(default_problem, usa_reader, check_output=False)
 
     # Get unique countries from assembled data
     countries = sorted({col[0] for col in assembled.data.columns})

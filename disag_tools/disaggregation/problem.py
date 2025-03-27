@@ -12,7 +12,6 @@ from disag_tools.configurations.config import DisaggregationConfig
 from disag_tools.disaggregation.bottom_blocks import BottomBlocks
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregationBlocks,
-    SectorId,
     SectorInfo,
     unfold_sectors_info,
 )
@@ -20,6 +19,7 @@ from disag_tools.disaggregation.final_demand_blocks import FinalDemandBlocks
 from disag_tools.disaggregation.planted_solution import PlantedSolution
 from disag_tools.disaggregation.prior_blocks import PriorBlocks, PriorInfo
 from disag_tools.disaggregation.solution_blocks import SolutionBlocks
+from disag_tools.disaggregation.utils import SectorId, _check_regional
 from disag_tools.readers.icio_reader import ICIOReader
 
 logger = logging.getLogger(__name__)
@@ -214,6 +214,7 @@ class DisaggregationProblem:
         final_demand_blocks: Structure that will hold the disaggregated final demand
         bottom_blocks: Structure that will hold the VA and TLS rows
         weights: List of weight arrays for each sector being disaggregated
+        regionalised: Whether the disaggregation is regionalised (default: False)
         prior_blocks: Optional prior information for the problem
         planted_solution: Optional planted solution for testing
     """
@@ -224,6 +225,7 @@ class DisaggregationProblem:
     final_demand_blocks: FinalDemandBlocks
     bottom_blocks: BottomBlocks
     weights: list[Array]
+    regionalised: bool = False
     prior_blocks: PriorBlocks | None = None
     planted_solution: PlantedSolution | None = None
 
@@ -265,6 +267,9 @@ class DisaggregationProblem:
 
         disag_mapping = config.get_disagg_mapping()
         weight_dict = config.get_weight_dictionary()
+
+        # Check if the disaggregation is regional
+        regionalised = _check_regional(disag_mapping)
 
         # Setup the disaggregation blocks
         sectors_info = unfold_sectors_info(disag_mapping)
@@ -356,6 +361,7 @@ class DisaggregationProblem:
             weights=weights,
             prior_blocks=prior_blocks,
             planted_solution=planted_solution,
+            regionalised=regionalised,
         )
 
     def solve(

@@ -16,7 +16,7 @@ def cli_runner():
     return CliRunner()
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def temp_output_dir(tmp_path):
     """Create a temporary output directory."""
     output_dir = tmp_path / "output"
@@ -243,20 +243,22 @@ def test_cli_log_level(cli_runner, tmp_path, temp_output_dir, caplog):
 
 def test_cli_real_data(
     cli_runner,
-    tmp_path,
     temp_output_dir,
     real_config_file,
     aggregated_data_file,
 ):
     """Test that the CLI works with real data."""
     # Run the disaggregation
+
+    temp_dir = aggregated_data_file.parent
+
     try:
         cli_runner.invoke(
             disaggregate,
             [
                 str(real_config_file),
                 str(aggregated_data_file),
-                str(temp_output_dir),
+                str(temp_dir),
                 "--log-level",
                 "DEBUG",
             ],
@@ -267,7 +269,7 @@ def test_cli_real_data(
         pass
 
     # Check that the output file exists
-    output_file = temp_output_dir / "disaggregated_table.csv"
+    output_file = temp_dir / "disaggregated_table.csv"
     assert output_file.exists()
 
     # Load the output data and check that it has the expected structure
