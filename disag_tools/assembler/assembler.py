@@ -9,6 +9,8 @@ import pandas as pd
 
 from disag_tools.disaggregation.problem import DisaggregationProblem
 from disag_tools.readers.icio_reader import ICIOReader
+from disag_tools.readers.mapping import ICIO_ALL
+
 
 logger = logging.getLogger(__name__)
 
@@ -259,5 +261,34 @@ class AssembledData:
 
         # Concatenate all rows in the correct order: regular rows, VA, TLS, OUT
         data = pd.concat([data, bottom_rows, output_row])
+
+        data, countries, industries = ICIOReader._clean_raw_data(data)
+
+        reader = ICIOReader(data=data, countries=countries, industries=industries)
+
+        new_reader = ICIOReader._aggregate_reader(
+            reader,
+            industry_aggregation=ICIO_ALL,
+        )
+        data = new_reader.data
+
+        no_va = data.loc[("VA", "Value Added"), new_reader.industry_column_filter] == 0
+        no_va_industries = set(no_va[no_va].index)
+
+        output = data.loc[new_reader.industry_index_filter, ("OUT", "OUT")]
+        positive_output = set(output[output > 0].index)
+
+        industries_to_readjust = list(no_va_industries.intersection(positive_output))
+
+        data.loc[("VA", "Value Added"), industries_to_readjust] = data.loc[
+            ("TLS", "Taxes Less Subsidies"), industries_to_readjust
+        ]
+
+        data.loc[("TLS", "Taxes Less Subsidies"), industries_to_readjust] = 0
+
+        data.rename(index={"OUT": "Output"}, level=1, inplace=True)
+        data.rename(columns={"OUT": "Output"}, level=1, inplace=True)
+
+        data.rename(index={"OUT": "TOTAL", "VA": "TOTAL", "TLS": "TOTAL"}, level=0, inplace=True)
 
         return cls(data=data)

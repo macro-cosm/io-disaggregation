@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from disag_tools.readers.mapping import ICIO_ALL
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,6 +122,7 @@ class ICIOReader:
         data: pd.DataFrame,
         countries: list[str],
         industries: list[str],
+        legacy_data: bool = False,
     ) -> None:
         """
         Initialize the ICIOReader.
@@ -128,6 +131,8 @@ class ICIOReader:
             data: The ICIO table as a DataFrame with MultiIndex for both rows and columns
             countries: List of country codes in the data
             industries: List of industry codes in the data
+            legacy_data: If True, indicates that the data is from an older table
+                and requires special
 
         Raises:
             ValueError: If data format is invalid
@@ -177,6 +182,8 @@ class ICIOReader:
             raise ValueError(
                 f"Data shape changed from {initial_shape} to {final_shape} after sorting"
             )
+
+        self.legacy_data = legacy_data
 
     def _sort_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -247,7 +254,7 @@ class ICIOReader:
         return data.reindex(index=sorted_idx, columns=sorted_cols)
 
     @classmethod
-    def from_csv(cls, csv_path: str | Path) -> "ICIOReader":
+    def from_csv(cls, csv_path: str | Path, legacy_read: bool = False) -> "ICIOReader":
         """
         Create an ICIOReader from a CSV file.
 
@@ -265,6 +272,8 @@ class ICIOReader:
 
         Args:
             csv_path: Path to the CSV file containing the ICIO table
+            legacy_read: If True, uses the legacy read_csv method for compatibility
+                         (e.g. for old tables from 2014 or around then)
 
         Returns:
             ICIOReader: Initialized reader with processed data
@@ -279,15 +288,26 @@ class ICIOReader:
 
         # Read the CSV file
         try:
-            raw_data = pd.read_csv(csv_path, header=[0, 1], index_col=[0, 1])
+            if not legacy_read:
+                raw_data = pd.read_csv(csv_path, header=[0, 1], index_col=[0, 1])
+            else:
+                raw_data = load_legacy(csv_path)
         except Exception as e:
             raise ValueError(f"Invalid file format: {e}")
 
+        raw_data, countries, industries = cls._clean_raw_data(raw_data)
+
+        # Create instance with the full data
+        reader = cls(raw_data, countries, industries, legacy_data=legacy_read)
+        reader.data_path = csv_path
+        return reader
+
+    @classmethod
+    def _clean_raw_data(cls, raw_data: pd.DataFrame) -> tuple[pd.DataFrame, [str], list[str]]:
         # Clean up the data
         # First, ensure the index and columns have the correct names
         raw_data.index.names = ["CountryInd", "industryInd"]
         raw_data.columns.names = ["CountryInd", "industryInd"]
-
         # Extract countries and industries, excluding special elements
         countries = sorted(
             {
@@ -306,17 +326,14 @@ class ICIOReader:
                 and idx[1] not in cls.SPECIAL_ELEMENTS
             }
         )
-
-        # Create instance with the full data
-        reader = cls(raw_data, countries, industries)
-        reader.data_path = csv_path
-        return reader
+        return raw_data, countries, industries
 
     @classmethod
     def from_csv_selection(
         cls,
         csv_path: str | Path,
         selected_countries: list[str] | None = None,
+        legacy_read: bool = False,
     ) -> "ICIOReader":
         """
         Create an ICIOReader from a CSV file with selected countries.
@@ -339,6 +356,7 @@ class ICIOReader:
             selected_countries: List of country codes to keep separate. All other
                 countries will be aggregated into a "ROW" (Rest of World) region.
                 If None, returns the full table without aggregation.
+            legacy_read: If True, uses the legacy read_csv method for compatibility
 
         Returns:
             ICIOReader: A new reader with the selected countries separate and
@@ -349,7 +367,7 @@ class ICIOReader:
             FileNotFoundError: If the CSV file doesn't exist
         """
         # First read the full data
-        reader = cls.from_csv(csv_path)
+        reader = cls.from_csv(csv_path, legacy_read=legacy_read)
 
         if selected_countries is None:
             return reader
@@ -414,7 +432,9 @@ class ICIOReader:
         new_countries = sorted(set(selected_countries) | {"ROW"})
 
         # Create new reader with aggregated data
-        new_reader = cls(aggregated, new_countries, reader.industries)
+        new_reader = cls(
+            aggregated, new_countries, reader.industries, legacy_data=reader.legacy_data
+        )
         new_reader.data_path = reader.data_path  # Preserve data path
         return new_reader
 
@@ -424,6 +444,7 @@ class ICIOReader:
         csv_path: str | Path,
         selected_countries: list[str] | None = None,
         industry_aggregation: dict[str, list[str]] | None = None,
+        legacy_read: bool = False,
     ) -> "ICIOReader":
         """
         Create an ICIOReader with both country and industry aggregation.
@@ -455,6 +476,7 @@ class ICIOReader:
                 {"AGR": ["A01", "A02", "A03"]} would combine the agricultural
                 sectors into a single AGR sector. If None, no industry
                 aggregation is performed.
+            legacy_read: If True, uses the legacy read_csv method for compatibility
 
         Returns:
             ICIOReader: A new reader with the specified aggregations applied
@@ -464,12 +486,23 @@ class ICIOReader:
             FileNotFoundError: If the CSV file doesn't exist
         """
         # First read the data normally
-        reader = cls.from_csv(csv_path)
+        reader = cls.from_csv(csv_path, legacy_read=legacy_read)
 
         # If no aggregation is needed, return as is
         if selected_countries is None and industry_aggregation is None:
             return reader
 
+        new_reader = cls._aggregate_reader(reader, selected_countries, industry_aggregation)
+        new_reader.data_path = reader.data_path  # Preserve data path
+        return new_reader
+
+    @classmethod
+    def _aggregate_reader(
+        cls,
+        reader: "ICIOReader",
+        selected_countries: list[str] | None = None,
+        industry_aggregation: dict[str, list[str]] | None = None,
+    ):
         # Create country mapping if needed
         country_mapping = None
         if selected_countries is not None:
@@ -498,30 +531,16 @@ class ICIOReader:
             # Add them to the mapping
             for special in special_elements:
                 country_mapping[special] = special
-
-        # Validate industry aggregation if specified
-        if industry_aggregation is not None:
-            all_industries = set(reader.industries)
-            for new_ind, old_inds in industry_aggregation.items():
-                invalid_inds = set(old_inds) - all_industries
-                if invalid_inds:
-                    raise ValueError(
-                        f"Invalid industry codes in aggregation mapping: {invalid_inds}"
-                    )
-
-        # Aggregate the data using the mappings
         data = cls._aggregate_data(
             reader.data,
             country_mapping=country_mapping,
             industry_mapping=industry_aggregation,
         )
-
         # Get new list of countries (selected + ROW if any countries were aggregated)
         if selected_countries is not None:
             countries = sorted(set(selected_countries) | {"ROW"})
         else:
             countries = reader.countries
-
         # Update industries list based on aggregation
         if industry_aggregation is not None:
             # Start with original industries
@@ -537,17 +556,15 @@ class ICIOReader:
             industries = sorted(industries)
         else:
             industries = reader.industries
-
         # Create new reader with aggregated data
         new_reader = cls(data, countries, industries)
-        new_reader.data_path = reader.data_path  # Preserve data path
         return new_reader
 
     @staticmethod
     def _aggregate_data(
         data: pd.DataFrame,
         country_mapping: dict[str, str] | None = None,
-        industry_mapping: dict[str, str] | None = None,
+        industry_mapping: dict[str, list[str]] | None = None,
     ) -> pd.DataFrame:
         """Aggregate data using provided country and/or industry mappings.
 
@@ -845,6 +862,12 @@ class ICIOReader:
 
         return table
 
+    def _rename_legacy(self) -> pd.DataFrame:
+        """
+        Rename the legacy columns in the ICIO table.
+        """
+        # use the ICIO_ALL mapping to rename the columns
+
     @property
     def final_demand_table(self) -> pd.DataFrame:
         """
@@ -1022,6 +1045,34 @@ class ICIOReader:
 
         return coefficients
 
+    @property
+    def industry_column_filter(self):
+        """
+        Get the filter for industry columns.
+
+        This property returns a list of tuples representing the valid
+        industry columns in the ICIO table. It filters out any special
+        sectors and only includes regular industries.
+
+        Returns:
+            list[tuple]: List of tuples representing valid industry columns
+        """
+        return self.data.columns.get_level_values(1).isin(self.industries)
+
+    @property
+    def industry_index_filter(self):
+        """
+        Get the filter for industry indices.
+
+        This property returns a list of tuples representing the valid
+        industry indices in the ICIO table. It filters out any special
+        sectors and only includes regular industries.
+
+        Returns:
+            list[tuple]: List of tuples representing valid industry indices
+        """
+        return self.data.index.get_level_values(1).isin(self.industries)
+
     @staticmethod
     def load_industry_list() -> list[str]:
         """
@@ -1056,3 +1107,23 @@ class ICIOReader:
         except Exception as e:
             logger.error(f"Error loading industry list: {str(e)}")
             return []
+
+
+def load_legacy(data_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(data_path, index_col=0)
+    df.index.name = "rows"
+    df.columns.name = "columns"
+    df = pd.melt(df.reset_index(), id_vars="rows")  # type: ignore
+    df["_inrow"] = df["rows"].str.contains("_")
+    df["_incol"] = df["columns"].str.contains("_")
+    sep_cols = df["columns"].str.split("_", expand=True)
+    sep_rows = df["rows"].str.split("_", expand=True)
+    df["col_1"] = np.where(df["_incol"], sep_cols[0], df["columns"])
+    df["col_2"] = np.where(df["_incol"], sep_cols[1], df["columns"])
+    df["rows_1"] = np.where(df["_inrow"], sep_rows[0], df["rows"])
+    df["rows_2"] = np.where(df["_inrow"], sep_rows[1], df["rows"])
+    df.drop(columns=["columns", "rows"], inplace=True)
+    df = df.pivot(index=["rows_1", "rows_2"], columns=["col_1", "col_2"], values="value")
+    df.index.names = ["CountryInd", "industryInd"]
+    df.columns.names = ["CountryCol", "industryCol"]
+    return df.sort_index(axis=0).sort_index(axis=1)

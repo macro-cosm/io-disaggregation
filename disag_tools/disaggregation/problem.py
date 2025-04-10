@@ -263,7 +263,9 @@ class DisaggregationProblem:
                     "Cannot perform country aggregation on reader without data_path. "
                     "Please load reader from CSV file."
                 )
-            reader = ICIOReader.from_csv_selection(reader.data_path, countries_to_keep)
+            reader = ICIOReader.from_csv_selection(
+                reader.data_path, countries_to_keep, legacy_read=reader.legacy_data
+            )
 
         disag_mapping = config.get_disagg_mapping()
         weight_dict = config.get_weight_dictionary()
