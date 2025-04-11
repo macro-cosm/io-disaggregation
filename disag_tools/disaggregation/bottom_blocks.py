@@ -72,7 +72,7 @@ class BottomBlocks:
             if agg_sector in reader.data.columns:
                 va_value = reader.data.loc[("VA", "VA"), agg_sector]
                 for subsector in subsectors:
-                    data.loc[("VA", "VA"), subsector] = va_value * weight_dict[subsector]
+                    data.loc[("VA", "VA"), subsector] = va_value * weight_dict.get(subsector, 0)
 
         # Fill TLS values as NaN - they will be computed in the assembler
         data.loc[("TLS", "TLS"), :] = np.nan

@@ -3,10 +3,11 @@
 import logging
 from pathlib import Path
 
+import pandas as pd
 import pytest
 import yaml
 
-from disag_tools.configurations import DisaggregationConfig
+from disag_tools.configurations import CountryConfig, DisaggregationConfig
 from disag_tools.disaggregation.disaggregation_blocks import (
     DisaggregatedBlocks,
     DisaggregationBlocks,
@@ -186,6 +187,11 @@ def usa_reader(icio_reader: ICIOReader) -> ICIOReader:
 
 
 @pytest.fixture(scope="session")
+def can_reader(data_dir):
+    return ICIOReader.from_csv_selection(data_dir / "2021_SML_P.csv", selected_countries=["CAN"])
+
+
+@pytest.fixture(scope="session")
 def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
     """
     Get a USA-only reader with A01 and A03 aggregated into sector "A".
@@ -267,4 +273,64 @@ def default_problem(real_disag_config, usa_aggregated_reader):
 
     return DisaggregationProblem.from_configuration(
         config=real_disag_config, reader=usa_aggregated_reader
+    )
+
+
+@pytest.fixture(scope="function")
+def canada_country_disagg_config(data_dir: Path) -> CountryConfig:
+    """Get the disaggregation configuration for Canada."""
+    with open(data_dir / "canada_provinces" / "canada_provinces.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    # Extract just the CAN configuration
+    return CountryConfig(**config_dict["countries"]["CAN"])
+
+
+@pytest.fixture(scope="function")
+def canada_provincial_disagg_config(data_dir: Path) -> DisaggregationConfig:
+    """Get the disaggregation configuration for Canada."""
+    with open(data_dir / "canada_provinces" / "canada_provinces.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    return DisaggregationConfig(**config_dict)
+
+
+@pytest.fixture(scope="function")
+def canada_technical_coeffs_prior(data_dir: Path) -> pd.DataFrame:
+    path = data_dir / "canada_provinces" / "technical_coeffs.csv"
+    return pd.read_csv(path, index_col=0)
+
+
+@pytest.fixture(scope="function")
+def canada_final_demand_prior(data_dir: Path) -> pd.DataFrame:
+    path = data_dir / "canada_provinces" / "final_demand_prior.csv"
+    return pd.read_csv(path)
+
+
+@pytest.fixture
+def usa_planted_solution(aggregated_blocks, usa_aggregated_reader, usa_reader_blocks):
+    base_mapping = {"A": ["A01", "A03"]}
+    countries = list(aggregated_blocks.reordered_matrix.index.get_level_values(0).unique())
+
+    # Create the full mapping for all countries
+    disaggregation_dict = {}
+    weight_dict = {}
+    for country in countries:
+        for sector, subsectors in base_mapping.items():
+            sector_id = (country, sector)
+            subsector_ids = [(country, s) for s in subsectors]
+            disaggregation_dict[sector_id] = subsector_ids
+
+            # Compute weights from the output values
+            total_output = sum(usa_reader_blocks.output[sid] for sid in subsector_ids)
+            for subsector_id in subsector_ids:
+                weight_dict[subsector_id] = float(
+                    usa_reader_blocks.output[subsector_id] / total_output  # type: ignore
+                )
+
+    return DisaggregatedBlocks.from_disaggregation_blocks(
+        blocks=aggregated_blocks,
+        disaggregation_dict=disaggregation_dict,
+        weight_dict=weight_dict,
+        final_demand=usa_aggregated_reader.final_demand,
     )

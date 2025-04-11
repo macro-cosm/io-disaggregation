@@ -6,7 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from disag_tools.disaggregation.disaggregation_blocks import DisaggregationBlocks, SectorInfo
+from disag_tools.disaggregation.disaggregation_blocks import (
+    DisaggregatedBlocks,
+    DisaggregationBlocks,
+    SectorInfo,
+)
 from disag_tools.readers.icio_reader import ICIOReader
 
 # Configure logging for tests

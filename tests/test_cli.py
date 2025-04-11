@@ -1,14 +1,13 @@
 """Tests for the command line interface."""
 
 import logging
-from pathlib import Path
 
-import pandas as pd
 import pytest
 import yaml
 from click.testing import CliRunner
 
 from disag_tools.cli import disaggregate
+from disag_tools.readers import ICIOReader
 
 
 @pytest.fixture
@@ -17,7 +16,7 @@ def cli_runner():
     return CliRunner()
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def temp_output_dir(tmp_path):
     """Create a temporary output directory."""
     output_dir = tmp_path / "output"
@@ -244,20 +243,22 @@ def test_cli_log_level(cli_runner, tmp_path, temp_output_dir, caplog):
 
 def test_cli_real_data(
     cli_runner,
-    tmp_path,
     temp_output_dir,
     real_config_file,
     aggregated_data_file,
 ):
     """Test that the CLI works with real data."""
     # Run the disaggregation
+
+    temp_dir = aggregated_data_file.parent
+
     try:
         cli_runner.invoke(
             disaggregate,
             [
                 str(real_config_file),
                 str(aggregated_data_file),
-                str(temp_output_dir),
+                str(temp_dir),
                 "--log-level",
                 "DEBUG",
             ],
@@ -268,11 +269,16 @@ def test_cli_real_data(
         pass
 
     # Check that the output file exists
-    output_file = temp_output_dir / "disaggregated_table.csv"
+    output_file = temp_dir / "disaggregated_table.csv"
     assert output_file.exists()
 
     # Load the output data and check that it has the expected structure
-    output_data = pd.read_csv(output_file, index_col=[0, 1], header=[0, 1])
+    # output_data = pd.read_csv(output_file, index_col=[0, 1], header=[0, 1])
+
+    output_icio = ICIOReader.from_csv(output_file)
+
+    output_data = output_icio.data
+
     assert ("USA", "A01") in output_data.index
     assert ("USA", "A03") in output_data.index
     assert ("ROW", "A01") in output_data.index

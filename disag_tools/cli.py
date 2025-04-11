@@ -110,7 +110,7 @@ def disaggregate(
     problem = DisaggregationProblem.from_configuration(
         config=config,
         reader=reader,
-        prior_df=prior_df,
+        technical_coeffs_prior_df=prior_df,
         final_demand_prior_df=final_demand_prior_df,
     )
 
