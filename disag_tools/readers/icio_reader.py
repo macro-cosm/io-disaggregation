@@ -14,8 +14,6 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from disag_tools.readers.mapping import ICIO_ALL
-
 logger = logging.getLogger(__name__)
 
 

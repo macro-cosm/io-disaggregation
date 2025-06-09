@@ -106,12 +106,13 @@ class AssembledData:
                     region_outputs = region_outputs.loc[regions]
                     region_shares = region_outputs / region_outputs.sum()
 
-                    # Distribute ROW final demand to each region based on output shares
+                    # Distribute ROW and other countries final demand to each region based on output shares
                     for region in regions:
-                        final_demand.loc["ROW", region] = (
-                            reader.final_demand_table.loc["ROW", country]
-                            * region_shares.loc[region]
-                        ).values
+                        for extra_country in set(countries) - set(regions):
+                            final_demand.loc[extra_country, region] = (
+                                reader.final_demand_table.loc[extra_country, country]
+                                * region_shares.loc[region]
+                            ).values
 
         # Get final demand columns from reader
         fd_cols = [

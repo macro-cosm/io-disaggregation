@@ -101,3 +101,37 @@ def test_disaggregation_problem(
     assert reagg_ratio.median() == pytest.approx(1.0, rel=1e-5)
 
     assert True
+
+
+def test_can_usa_disaggregation(
+    can_usa_reader,
+    canusa_disagg_config,
+    canada_technical_coeffs_prior,
+    tmp_path_factory,
+):
+
+    # Get threshold for top 50% of values
+    threshold = canada_technical_coeffs_prior["value"].quantile(0.50)
+    logger.debug(f"Using threshold {threshold:.2e} for prior values")
+    logger.debug(
+        f"Prior value range: [{canada_technical_coeffs_prior['value'].min():.2e}, {canada_technical_coeffs_prior['value'].max():.2e}]"
+    )
+
+    # # Keep only top 50% of values
+    canada_technical_coeffs_prior = canada_technical_coeffs_prior[
+        canada_technical_coeffs_prior["value"] >= threshold
+    ].copy()
+
+    logger.debug(f"Using {len(canada_technical_coeffs_prior)} prior constraints")
+
+    problem = DisaggregationProblem.from_configuration(
+        reader=can_usa_reader,
+        config=canusa_disagg_config,
+        technical_coeffs_prior_df=canada_technical_coeffs_prior,
+    )
+
+    problem.solve()
+
+    assembled = AssembledData.from_solution(problem, can_usa_reader)
+
+    assert "USA" in assembled.data.index.get_level_values("CountryInd").unique()

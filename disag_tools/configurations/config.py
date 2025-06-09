@@ -98,6 +98,7 @@ class DisaggregationConfig(BaseModel):
 
     countries: dict[str, CountryConfig] | None = None
     sectors: dict[str, SectorConfig] | None = None
+    extra_countries: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_at_least_one_disagg(self) -> "DisaggregationConfig":
@@ -389,5 +390,8 @@ class DisaggregationConfig(BaseModel):
                 for subsector in sector_config.subsectors.values():
                     countries.update(subsector.relative_output_weights.keys())
 
+        # Add extra countries if specified
+        if self.extra_countries:
+            countries.update(self.extra_countries)
         # Convert to sorted list
         return sorted(countries)

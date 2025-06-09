@@ -192,6 +192,13 @@ def can_reader(data_dir):
 
 
 @pytest.fixture(scope="session")
+def can_usa_reader(data_dir):
+    return ICIOReader.from_csv_selection(
+        data_dir / "2021_SML_P.csv", selected_countries=["CAN", "USA"]
+    )
+
+
+@pytest.fixture(scope="session")
 def usa_aggregated_reader(icio_reader: ICIOReader) -> ICIOReader:
     """
     Get a USA-only reader with A01 and A03 aggregated into sector "A".
@@ -290,6 +297,15 @@ def canada_country_disagg_config(data_dir: Path) -> CountryConfig:
 def canada_provincial_disagg_config(data_dir: Path) -> DisaggregationConfig:
     """Get the disaggregation configuration for Canada."""
     with open(data_dir / "canada_provinces" / "canada_provinces.yaml") as f:
+        config_dict = yaml.safe_load(f)
+
+    return DisaggregationConfig(**config_dict)
+
+
+@pytest.fixture(scope="function")
+def canusa_disagg_config(data_dir: Path) -> DisaggregationConfig:
+    """Get the disaggregation configuration for CAN and USA."""
+    with open(data_dir / "canada_provinces" / "can_usa_disaggregation.yaml") as f:
         config_dict = yaml.safe_load(f)
 
     return DisaggregationConfig(**config_dict)
