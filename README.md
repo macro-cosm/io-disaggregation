@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/macro-cosm/io-disaggregation/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/macro-cosm/io-disaggregation/actions/workflows/test.yml)
 
-A Python package to disagregate input-output tables. Developed by [José Moran](https://github.com/jose-moran).
+A Python package to disagregate input-output tables. Developed by [José Moran](https://github.com/jose-moran) (a lot of this was generated via LLMs as an experiment).
 
 ## Features
 
